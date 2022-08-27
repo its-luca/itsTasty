@@ -22,53 +22,31 @@ func NewRatingFromInt(r int) (Rating, error) {
 	return Rating(r), nil
 }
 
-// ratings is a helper slice containing all valid ratings
-var ratings []Rating = []Rating{OneStar, TwoStars, ThreeStars, FourStars, FiveStars}
-
-type Dish struct {
-	//Name of this dish
-	Name string
-	//occurences stores the Dates on which this dish was served
-	occurences []time.Time
-	//ratings stores the ratings for this dish. Index 0 means 1 star and so on
-	ratings map[Rating]int
+type DishRating struct {
+	Who   string
+	Value Rating
+	When  time.Time
 }
 
-// NewDishToday creates a new dish that was first served today
-func NewDishToday(name string) Dish {
-	return Dish{
-		Name:       name,
-		occurences: []time.Time{time.Now()},
-		ratings:    make(map[Rating]int, 0),
-	}
+type DishRatings struct {
+	Subject Dish
+	ratings []DishRating
 }
 
-func UnmarshalFromDB(name string, occurrences []time.Time, ratings map[Rating]int) *Dish {
-	return &Dish{
-		Name:       name,
-		occurences: occurrences,
-		ratings:    ratings,
+func NewDishRatings(dish Dish, ratings []DishRating) DishRatings {
+	return DishRatings{
+		Subject: dish,
+		ratings: ratings,
 	}
-}
-
-// Rate stores the given rating
-func (d *Dish) Rate(r Rating) {
-	val, ok := d.ratings[r]
-	if !ok {
-		val = 1
-	} else {
-		val = val + 1
-	}
-	d.ratings[r] = val
 }
 
 // AverageRating returns the average rating or an error if no ratings exist yet
-func (d *Dish) AverageRating() (float32, error) {
+func (d *DishRatings) AverageRating() (float32, error) {
 	ratingSum := float64(0)
 	totalCount := float64(0)
-	for _, r := range ratings {
-		ratingSum += float64(d.ratings[r]) * float64(r)
-		totalCount += float64(d.ratings[r])
+	for _, r := range d.ratings {
+		ratingSum += float64(r.Value)
+		totalCount += 1
 	}
 	if totalCount == 0 {
 		return 0, fmt.Errorf("no votes yet")
@@ -77,8 +55,29 @@ func (d *Dish) AverageRating() (float32, error) {
 }
 
 // Ratings returns all ratings for this dish
-func (d *Dish) Ratings() map[Rating]int {
-	return d.ratings
+func (d *DishRatings) Ratings() map[Rating]int {
+	res := make(map[Rating]int)
+
+	for _, v := range d.ratings {
+		res[v.Value] = res[v.Value] + 1
+	}
+
+	return res
+}
+
+type Dish struct {
+	//Name of this dish
+	Name string
+	//occurences stores the Dates on which this dish was served
+	occurences []time.Time
+}
+
+// NewDishToday creates a new dish that was first served today
+func NewDishToday(name string) Dish {
+	return Dish{
+		Name:       name,
+		occurences: []time.Time{time.Now()},
+	}
 }
 
 // Occurrences returns all dates on which this dish was served
@@ -99,9 +98,9 @@ func onSameDay(t1, t2 time.Time) bool {
 	return true
 }
 
-// WasServedToday registers that this dish was served today.
+// MarkAsServedToday registers that this dish was served today.
 // Calling this multiple times on the same day has no effect
-func (d *Dish) WasServedToday() {
+func (d *Dish) MarkAsServedToday() {
 	//only add one entry per day
 	if onSameDay(d.occurences[len(d.occurences)-1], time.Now()) {
 		return

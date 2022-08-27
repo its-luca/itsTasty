@@ -3,6 +3,7 @@ package domain
 import (
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 )
 
 func newTestDishToday() Dish {
@@ -11,32 +12,50 @@ func newTestDishToday() Dish {
 
 func TestDish_AverageRating(t *testing.T) {
 	tests := []struct {
-		name      string
-		setupDish func() Dish
-		want      float32
-		wantErr   bool
+		name    string
+		setup   func() DishRatings
+		want    float32
+		wantErr bool
 	}{
 		{
-			name:      "No ratings",
-			setupDish: func() Dish { return newTestDishToday() },
-			wantErr:   true,
+			name:    "No ratings",
+			setup:   func() DishRatings { return NewDishRatings(newTestDishToday(), make([]DishRating, 0)) },
+			wantErr: true,
 		},
 		{
 			name: "Test average",
-			setupDish: func() Dish {
+			setup: func() DishRatings {
 				d := newTestDishToday()
-				d.Rate(OneStar)
-				d.Rate(FiveStars)
-				d.Rate(FourStars)
-				d.Rate(FourStars)
-				return d
+				ratings := []DishRating{
+					{
+						Who:   "userA",
+						Value: OneStar,
+						When:  time.Time{},
+					},
+					{
+						Who:   "userB",
+						Value: FiveStars,
+						When:  time.Time{},
+					},
+					{
+						Who:   "userC",
+						Value: FourStars,
+						When:  time.Time{},
+					},
+					{
+						Who:   "userD",
+						Value: FourStars,
+						When:  time.Time{},
+					},
+				}
+				return NewDishRatings(d, ratings)
 			},
 			want: 3.5,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := tt.setupDish()
+			d := tt.setup()
 			got, err := d.AverageRating()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Dish.AverageRating() error = %v, wantErr %v", err, tt.wantErr)
@@ -52,8 +71,8 @@ func TestDish_AverageRating(t *testing.T) {
 func TestDish_WasServedToday(t *testing.T) {
 
 	d := NewDishToday("testDish")
-	d.WasServedToday()
-	d.WasServedToday()
+	d.MarkAsServedToday()
+	d.MarkAsServedToday()
 
 	assert.Equalf(t, 1, len(d.Occurrences()), "Calling was served today on the same date should not add occurences")
 }

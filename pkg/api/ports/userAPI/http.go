@@ -2,7 +2,13 @@ package userAPI
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/deepmap/oapi-codegen/pkg/types"
+	"golang.org/x/sync/errgroup"
+	"itsTasty/pkg/api/domain"
+	"log"
+	"time"
 )
 
 //go:generate oapi-codegen --config ./server.cfg.yml ../../userAPI.yml
@@ -24,7 +30,10 @@ func GetUserEmailFromCTX(ctx context.Context) (string, error) {
 	return userEmail, nil
 }
 
+const defaultDBTimeout = 5 * time.Second
+
 type HttpServer struct {
+	repo domain.DishRepo
 }
 
 func NewHttpServer() *HttpServer {
@@ -32,21 +41,161 @@ func NewHttpServer() *HttpServer {
 }
 
 func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishIDRequestObject) interface{} {
-	//TODO implement me
-	panic("implement me")
+	userEmail, err := GetUserEmailFromCTX(ctx)
+	if err != nil {
+		log.Printf("GetUserEmailFromCTX : %v", err)
+		return PostDishesDishID500JSONResponse{What: ""}
+	}
+
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+	dbErrGroup, dbErrGroupCtx := errgroup.WithContext(dbCtx)
+
+	//Fill the following vars with background jobs
+	var dishRatignOfUser *domain.DishRating
+	var dish *domain.Dish
+	var dishRatings *domain.DishRatings
+
+	//Get Rating Of User for Dish
+	dbErrGroup.Go(func() error {
+		var err error
+		dishRatignOfUser, err = h.repo.GetRating(dbErrGroupCtx, userEmail, request.DishID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				dishRatignOfUser = nil
+				return nil
+			}
+			return fmt.Errorf("GetRating : %v", err)
+		}
+		return nil
+	})
+
+	//Get all Ratings for Dish
+	dbErrGroup.Go(func() error {
+		var err error
+		dishRatings, err = h.repo.GetAllRatingsForDish(dbErrGroupCtx, request.DishID)
+		if err != nil {
+			return fmt.Errorf("GetAllRatingsForDish : %v", err)
+		}
+		return nil
+	})
+
+	//Get dish
+	dbErrGroup.Go(func() error {
+		var err error
+		dish, err = h.repo.GetDishByID(dbErrGroupCtx, request.DishID)
+		if err != nil {
+			return fmt.Errorf("GetDishByID : %v", err)
+		}
+		return nil
+	})
+
+	//Wait for all jobs and check if there was an error
+	err = dbErrGroup.Wait()
+	if err != nil {
+		log.Printf("Job in errgroup failed : %v", err)
+		return GetDishesDishID500JSONResponse{What: ""}
+	}
+
+	ratings := make(map[string]int)
+	for k, v := range dishRatings.Ratings() {
+		ratings[fmt.Sprintf("%v", k)] = v
+	}
+
+	const maxOccurencesInAnswer = 10
+	occurences := dish.Occurrences()
+	occurenceCountForResponse := maxOccurencesInAnswer
+	if maxOccurencesInAnswer > len(occurences) {
+		occurenceCountForResponse = len(occurences)
+	}
+	recentOccurrences := make([]types.Date, 0, occurenceCountForResponse)
+	for i := range occurences {
+		recentOccurrences = append(recentOccurrences, types.Date{Time: occurences[i]})
+	}
+
+	response := GetDishesDishID200JSONResponse{
+		AvgRating:         nil, //updated below if data is available
+		Name:              dish.Name,
+		OccurrenceCount:   len(dish.Occurrences()),
+		RatingOfUser:      nil, //updated below if data is available
+		Ratings:           ratings,
+		RecentOccurrences: recentOccurrences,
+	}
+
+	if avgRating, err := dishRatings.AverageRating(); err != nil {
+		response.AvgRating = &avgRating
+	}
+
+	if dishRatignOfUser != nil {
+		v := GetDishRespRatingOfUser(dishRatignOfUser.Value)
+		response.RatingOfUser = &v
+	}
+
+	return response
+
 }
 
 func (h HttpServer) PostDishesDishID(ctx context.Context, request PostDishesDishIDRequestObject) interface{} {
-	//TODO implement me
-	panic("implement me")
+
+	userEmail, err := GetUserEmailFromCTX(ctx)
+	if err != nil {
+		log.Printf("GetUserEmailFromCTX : %v", err)
+		return PostDishesDishID500JSONResponse{What: ""}
+	}
+
+	rating, err := domain.NewRatingFromInt(int(request.Body.Rating))
+	if err != nil {
+		log.Printf("User %v gave invalid rating : %v", userEmail, err)
+	}
+
+	dishRating := domain.DishRating{
+		Who:   userEmail,
+		Value: rating,
+		When:  time.Now(),
+	}
+
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+
+	if err := h.repo.SetRating(dbCtx, userEmail, request.DishID, dishRating); err != nil {
+		log.Printf("SetRating for dishID %v by user %v : %v", request.DishID, userEmail, err)
+	}
+
+	return PostDishesDishID200Response{}
+
 }
 
-func (h HttpServer) GetGetAllDishes(ctx context.Context, request GetGetAllDishesRequestObject) interface{} {
-	//TODO implement me
-	panic("implement me")
+func (h HttpServer) GetGetAllDishes(ctx context.Context, _ GetGetAllDishesRequestObject) interface{} {
+
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+	dishIDs, err := h.repo.GetAllDishIDs(dbCtx)
+	if err != nil {
+		log.Printf("GetAllDishes : %v", err)
+		return GetGetAllDishes500JSONResponse{What: ""}
+	}
+
+	return GetGetAllDishes200JSONResponse(dishIDs)
 }
 
 func (h HttpServer) PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) interface{} {
-	//TODO implement me
-	panic("implement me")
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+	_, dishID, err := h.repo.GetDishByName(dbCtx, request.Body.DishName)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return PostSearchDish200JSONResponse{
+				DishName:  request.Body.DishName,
+				FoundDish: false,
+			}
+		}
+		log.Printf("GetDishByName for %v: %v", request.Body.DishName, err)
+		return PostSearchDish500JSONResponse{What: ""}
+	}
+
+	return PostSearchDish200JSONResponse{
+		DishID:    &dishID,
+		DishName:  request.Body.DishName,
+		FoundDish: true,
+	}
 }

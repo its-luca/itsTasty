@@ -132,12 +132,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SearchDishResp'
-        400:
-          description: Bad Input Data
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BasicError'
         '500':
           description: Internal error but input was fine
           content:
