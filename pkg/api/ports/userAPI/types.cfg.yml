@@ -1,0 +1,4 @@
+package: userAPI
+generate:
+  models: true
+output: dish-types.gen.go

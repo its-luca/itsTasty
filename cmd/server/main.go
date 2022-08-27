@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"itsTasty/pkg/api/ports/userAPI"
 	"itsTasty/pkg/oidcAuth"
 	"log"
 	"net/http"
@@ -86,16 +88,17 @@ func parseConfig() (*config, error) {
 
 func newApplication(cfg *config) (*application, error) {
 
-	//build
+	//Build Session Storage
 
 	log.Printf("Building session storage...")
 	session := scs.New()
 	session.Lifetime = 1 * time.Hour
 	session.Cookie.Secure = true
 
-	authStorageAdapter := NewAuthSessionStorageManager(session)
+	//Build oidc authenticator
 
 	log.Printf("Building auth backend...")
+	authStorageAdapter := NewAuthSessionStorageManager(session)
 	authenticator, err := oidcAuth.NewDefaultAuthenticator(cfg.oidcProviderURL, cfg.oidcID, cfg.oidcSecret,
 		cfg.oidcCallbackURL, "/whoami", "/", authStorageAdapter)
 	if err != nil {
@@ -126,6 +129,41 @@ func (app *application) setupRouter() (chi.Router, error) {
 	router.Handle("/callback", http.HandlerFunc(app.authenticator.CallbackHandler))
 	router.Handle("/login", http.HandlerFunc(app.authenticator.LoginHandler))
 	router.Handle("/logout", http.HandlerFunc(app.authenticator.LogoutHandler))
+
+	//Builder User API for dishes
+	swagger, err := userAPI.GetSwagger()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load swagger spec : %v", err)
+	}
+	swagger.Servers = nil
+
+	userAPiRouter := chi.NewRouter()
+	//only allow authenticated and setup context as api expects is
+	userAPiRouter.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := oidcAuth.UserProfile{}
+			raw := app.session.GetString(r.Context(), oidcAuth.SessionKeyProfile)
+			if raw == "" {
+				log.Printf("Blocked unauthenticated access to userAPI")
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			if err := json.Unmarshal([]byte(raw), &p); err != nil {
+				log.Printf("Failed to unmarshal user profile : %v", err)
+				http.Error(w, "", http.StatusInternalServerError)
+			}
+
+			//add user email to context
+			r = r.WithContext(userAPI.ContextWithUserEmail(r.Context(), p.Email))
+
+			next.ServeHTTP(w, r)
+		})
+	})
+
+	userAPIServer := userAPI.NewHttpServer()
+	userAPIHandlers := userAPI.NewStrictHandler(userAPIServer, nil)
+	userAPI.HandlerFromMux(userAPIHandlers, userAPiRouter)
+	router.Mount("/userAPI/v1", userAPiRouter)
 
 	return router, nil
 }
@@ -165,7 +203,7 @@ func run(app *application) error {
 
 func main() {
 
-	log.SetFlags(log.Flags() | log.Lshortfile)
+	log.SetFlags(log.Flags() | log.Llongfile)
 
 	log.Printf("Parsing config...")
 	cfg, err := parseConfig()

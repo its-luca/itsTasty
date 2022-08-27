@@ -1,0 +1,210 @@
+openapi: 3.0.3
+info:
+  version: 0.1.0
+  title: ITS (Hopefully) Tasty User API
+  description: This API allows users to rate and view the tastiness of our beloved mensa dishes
+servers:
+  - url: http://localhost:8080/userAPI/v1
+    description: Local testing server
+
+
+components:
+  schemas:
+    BasicError:
+      type: object
+      properties:
+        what:
+          type: string
+      required:
+        - what
+    RateDishReq:
+      description: Request to vote for a dish
+      type: object
+      properties:
+        rating:
+          type: integer
+          enum: [1,2,3,4,5]
+      required:
+        - rating
+
+    GetDishResp:
+      description: Detailed description of a dish
+      type: object
+      properties:
+        name:
+          description: Name of the dish
+          type: string
+        occurrenceCount:
+          description: Amount of times this dish occurred
+          type: integer
+        recentOccurrences:
+          description: Most recent occurrences of the dish. Might not contain the whole history
+          type: array
+          items:
+            type: string
+            format: date
+            description: format yyyy.mm.dd
+        avgRating:
+          description: Average rating for this dish. Omitted if there are no votes yet
+          type: number
+        ratings:
+          description: Ratings for this dish. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
+          type: object
+          additionalProperties:
+            type: integer
+        ratingOfUser:
+          description: Rating for this dish of the requesting user. Omitted if the user has not rated yet.
+          type: integer
+          enum: [ 1,2,3,4,5 ]
+      required:
+        - name
+        - occurrenceCount
+        - recentOccurrences
+        - ratings
+
+    SearchDishReq:
+      description: Request to lookup a dishID by the dish name
+      type: object
+      properties:
+        dishName:
+          description: Dish to search for
+          type: string
+      required:
+        - dishName
+
+    SearchDishResp:
+      description: Contains the dishID the requested dish
+      type: object
+      properties:
+        foundDish:
+          description: True if the dish was found
+          type: boolean
+        dishID:
+          description: ID of the searched dish if it was found. Omitted otherwise
+          type: integer
+        dishName:
+          description: Name of the searched ish
+      required:
+        - dishName
+        - foundDish
+    GetAllDishesResponse:
+      description: Array with all known dish IDs
+      type: array
+      items:
+        type: integer
+        description: dishID
+
+
+
+paths:
+  /getAllDishes:
+    get:
+      description: Returns the IDs of all known dishes
+      responses:
+        #In the future this should be paginated
+        200:
+          description: Return all known dish IDs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllDishesResponse'
+        '500':
+          description: Internal error but input was fine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '401':
+          description: User needs to login
+  /searchDish:
+    post:
+      description: Search for a dish by name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchDishReq'
+      responses:
+        200:
+          description: Found the dish
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchDishResp'
+        400:
+          description: Bad Input Data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '500':
+          description: Internal error but input was fine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '401':
+          description: User needs to login
+  /dishes/{dishID}:
+    post:
+      description: Rate the dish
+      parameters:
+        - in: path
+          name: dishID
+          schema:
+            type: integer
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RateDishReq'
+      responses:
+        200:
+          description: Success
+        400:
+          description: Bad Input Data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '500':
+          description: Internal error but input was fine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '401':
+          description: User needs to login
+    get:
+      description: Get details like ratings and occurrences for this dish including the users own rating
+      parameters:
+        - in: path
+          name: dishID
+          schema:
+            type: integer
+          required: true
+      responses:
+        '200':
+          description: Detailed information about the dish
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetDishResp'
+        '400':
+          description: Bad Input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '500':
+          description: Internal error but input was fine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '401':
+          description: User needs to login
+

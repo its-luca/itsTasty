@@ -72,6 +72,8 @@ func (da *DefaultAuthenticator) CheckSession(next http.Handler) http.Handler {
 			}
 			log.Printf("refreshed session, expires in %v", token.Expiry)
 		}
+
+		log.Printf("Check session middleware: allowed")
 		next.ServeHTTP(w, r)
 	})
 }

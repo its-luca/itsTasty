@@ -1,0 +1,6 @@
+package: userAPI
+generate:
+  strict-server: true
+  chi-server: true
+  embedded-spec: true
+output: dish-server.gen.go
