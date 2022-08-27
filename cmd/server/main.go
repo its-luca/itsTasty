@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"github.com/alexedwards/scs/v2"
@@ -89,23 +88,19 @@ func newApplication(cfg *config) (*application, error) {
 
 	//build
 
+	log.Printf("Building session storage...")
+	session := scs.New()
+	session.Lifetime = 1 * time.Hour
+	session.Cookie.Secure = true
+
+	authStorageAdapter := NewAuthSessionStorageManager(session)
+
 	log.Printf("Building auth backend...")
-	authenticator, err := oidcAuth.NewDefaultAuthenticator(cfg.oidcProviderURL, cfg.oidcID, cfg.oidcSecret, cfg.oidcCallbackURL)
+	authenticator, err := oidcAuth.NewDefaultAuthenticator(cfg.oidcProviderURL, cfg.oidcID, cfg.oidcSecret,
+		cfg.oidcCallbackURL, "/whoami", "/", authStorageAdapter)
 	if err != nil {
 		return nil, fmt.Errorf("oidcAuth.NewDefaultAuthenticator : %v", err)
 	}
-
-	log.Printf("Building session storage...")
-	//decoder/encoder for sessions
-	gob.Register(map[string]interface{}{})
-	gob.Register(time.Time{})
-	gob.Register([]interface{}{})
-	session := scs.New()
-	session.Lifetime = 1 * time.Hour
-	//TODO: if we use strict, we do not get a session when we are on the callback from gitlab oidc
-	//read up why this is the case
-	//session.Cookie.SameSite = http.SameSiteStrictMode
-	session.Cookie.Secure = true
 
 	app := application{
 		conf:          cfg,
@@ -126,30 +121,11 @@ func (app *application) setupRouter() (chi.Router, error) {
 	log.Printf("Configuring router...")
 	router := chi.NewRouter()
 	router.Use(app.session.LoadAndSave)
-	router.Use(app.processAuthentication)
+	router.Use(app.authenticator.CheckSession)
 
-	router.Handle("/callback", http.HandlerFunc(app.callbackHandler))
-	router.Handle("/login", http.HandlerFunc(app.LoginHandler))
-	router.Handle("/logout", http.HandlerFunc(app.logoutHandler))
-
-	router.Handle("/whoami", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, ok := r.Context().Value(contextKeyIsAuthenticated).(bool)
-		if !ok {
-			http.Redirect(w, r, "/", http.StatusUnauthorized)
-			return
-		}
-
-		profile, ok := r.Context().Value("profile").(map[string]interface{})
-		if !ok {
-			http.Error(w, "failed to fetch profile from session", http.StatusInternalServerError)
-			return
-		}
-
-		_, err := w.Write([]byte(fmt.Sprintf("Your profile is %+v", profile)))
-		if err != nil {
-			log.Printf("failed to print profile info : %v", err)
-		}
-	}))
+	router.Handle("/callback", http.HandlerFunc(app.authenticator.CallbackHandler))
+	router.Handle("/login", http.HandlerFunc(app.authenticator.LoginHandler))
+	router.Handle("/logout", http.HandlerFunc(app.authenticator.LogoutHandler))
 
 	return router, nil
 }
