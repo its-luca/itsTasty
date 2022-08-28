@@ -15,8 +15,6 @@ components:
       properties:
         what:
           type: string
-      required:
-        - what
     RateDishReq:
       description: Request to vote for a dish
       type: object
@@ -127,7 +125,7 @@ paths:
               $ref: '#/components/schemas/SearchDishReq'
       responses:
         200:
-          description: Found the dish
+          description: Success
           content:
             application/json:
               schema:
@@ -172,6 +170,8 @@ paths:
                 $ref: '#/components/schemas/BasicError'
         '401':
           description: User needs to login
+        404:
+          description: dishID not found
     get:
       description: Get details like ratings and occurrences for this dish including the users own rating
       parameters:
@@ -201,4 +201,6 @@ paths:
                 $ref: '#/components/schemas/BasicError'
         '401':
           description: User needs to login
+        404:
+          description: dishID not found
 

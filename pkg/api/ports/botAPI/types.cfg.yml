@@ -1,0 +1,4 @@
+package: botAPI
+generate:
+  models: true
+output: dish-types.gen.go

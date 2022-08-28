@@ -1,0 +1,136 @@
+openapi: 3.0.3
+info:
+  version: 0.1.0
+  title: ITS (Hopefully) Tasty Bot API
+  description: This API allows the mensa bot to manage dishes and fetch dish ratings
+servers:
+  - url: http://localhost:8080/userAPI/v1
+    description: Local testing server
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-KEY
+  schemas:
+    BasicError:
+      type: object
+      properties:
+        what:
+          type: string
+    GetDishResp:
+      description: Detailed description of a dish
+      type: object
+      properties:
+        name:
+          description: Name of the dish
+          type: string
+        occurrenceCount:
+          description: Amount of times this dish occurred
+          type: integer
+        recentOccurrences:
+          description: Most recent occurrences of the dish. Might not contain the whole history
+          type: array
+          items:
+            type: string
+            format: date
+            description: format yyyy.mm.dd
+        avgRating:
+          description: Average rating for this dish. Omitted if there are no votes yet
+          type: number
+        ratings:
+          description: Ratings for this dish. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
+          type: object
+          additionalProperties:
+            type: integer
+      required:
+        - name
+        - occurrenceCount
+        - recentOccurrences
+        - ratings
+    CreateOrUpdateDishReq:
+      description: Transmit data for dish creation
+      type: object
+      properties:
+        dishName:
+          description: Name of the dish to be created / updated
+          type: string
+      required:
+        - dishName
+
+    CreateOrUpdateDishResp:
+      type: object
+      description: Inform if dish was created or just updated and return its ID
+      properties:
+        createdNewDish:
+          description: True if a new dish was created
+          type: boolean
+        dishID:
+          description: ID of the created/updated dish. Just there to make subsequent calls easier
+          type: integer
+      required:
+        - createdNewDish
+        - dishID
+
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /dishes/{dishID}:
+    get:
+      description: Get details like ratings and occurrences for this dish
+      parameters:
+        - in: path
+          name: dishID
+          schema:
+            type: integer
+          required: true
+      responses:
+        200:
+          description: Detailed information about the dish
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetDishResp'
+        '400':
+          description: Bad Input data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        404:
+          description: DishID not found
+        '500':
+          description: Internal error but input was fine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '401':
+          description: User needs to login
+  /createOrUpdateDish:
+    post:
+      description: Create new dish or update it's "last served" value if if already exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrUpdateDishReq'
+      responses:
+        200:
+          description: Success. Return if a new dish was created as well as the dishID for future API calls
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrUpdateDishResp'
+        '500':
+          description: Internal error but input was fine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '401':
+          description: User needs to login

@@ -27,7 +27,7 @@ const (
 
 // BasicError defines model for BasicError.
 type BasicError struct {
-	What string `json:"what"`
+	What *string `json:"what,omitempty"`
 }
 
 // GetAllDishesResponse Array with all known dish IDs
