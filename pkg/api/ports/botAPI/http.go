@@ -20,6 +20,12 @@ type Service struct {
 	repo domain.DishRepo
 }
 
+func NewService(repo domain.DishRepo) *Service {
+	return &Service{
+		repo: repo,
+	}
+}
+
 func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreateOrUpdateDishRequestObject) interface{} {
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()

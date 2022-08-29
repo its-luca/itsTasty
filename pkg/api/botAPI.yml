@@ -3,9 +3,7 @@ info:
   version: 0.1.0
   title: ITS (Hopefully) Tasty Bot API
   description: This API allows the mensa bot to manage dishes and fetch dish ratings
-servers:
-  - url: http://localhost:8080/userAPI/v1
-    description: Local testing server
+
 
 components:
   securitySchemes:
@@ -40,7 +38,7 @@ components:
           description: Average rating for this dish. Omitted if there are no votes yet
           type: number
         ratings:
-          description: Ratings for this dish. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
+          description: Ratings for this dish. Keys mean "stars" and values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
           type: object
           additionalProperties:
             type: integer

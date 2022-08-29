@@ -2,13 +2,19 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"itsTasty/pkg/api/adapters/dishRepo"
+	"itsTasty/pkg/api/domain"
+	"itsTasty/pkg/api/ports/botAPI"
 	"itsTasty/pkg/api/ports/userAPI"
 	"itsTasty/pkg/oidcAuth"
+
 	"log"
 	"net/http"
 	"os"
@@ -18,13 +24,26 @@ import (
 )
 
 const (
+	envVarDBURL  = "DB_URL"
+	envVarDBName = "DB_NAME"
+	envVarDBUser = "DB_USER"
+	envVarDBPW   = "DB_PW"
+
 	envOIDCSecret      = "OIDC_SECRET"
 	envOIDCCallbackURL = "OIDC_CALLBACK_URL"
 	envOIDCProviderURL = "OIDC_PROVIDER_URL"
 	envOIDCID          = "OIDC_ID"
+
+	envBotAPIToken = "BOT_API_TOKEN"
 )
 
 type config struct {
+
+	//DB config
+	dbURL  string
+	dbName string
+	dbUser string
+	dbPW   string
 
 	//OIDC Config
 
@@ -32,6 +51,10 @@ type config struct {
 	oidcCallbackURL string
 	oidcProviderURL string
 	oidcID          string
+
+	//Bot Auth Config
+
+	botAPIToken string
 
 	// Session Config
 
@@ -47,6 +70,7 @@ type application struct {
 	authenticator oidcAuth.Authenticator
 	session       *scs.SessionManager
 	router        chi.Router
+	dishRepo      domain.DishRepo
 }
 
 func parseConfig() (*config, error) {
@@ -56,6 +80,30 @@ func parseConfig() (*config, error) {
 	}
 
 	cfg := config{}
+
+	if dbURL := os.Getenv(envVarDBURL); dbURL == "" {
+		return nil, setEnvErr(envVarDBURL)
+	} else {
+		cfg.dbURL = dbURL
+	}
+
+	if dbName := os.Getenv(envVarDBName); dbName == "" {
+		return nil, setEnvErr(envVarDBName)
+	} else {
+		cfg.dbName = dbName
+	}
+
+	if dbUser := os.Getenv(envVarDBUser); dbUser == "" {
+		return nil, setEnvErr(envVarDBUser)
+	} else {
+		cfg.dbUser = dbUser
+	}
+
+	if dbPW := os.Getenv(envVarDBPW); dbPW == "" {
+		return nil, setEnvErr(envVarDBPW)
+	} else {
+		cfg.dbPW = dbPW
+	}
 
 	if oidcSecret := os.Getenv(envOIDCSecret); oidcSecret == "" {
 		return nil, setEnvErr(envOIDCSecret)
@@ -79,6 +127,12 @@ func parseConfig() (*config, error) {
 		return nil, setEnvErr(envOIDCID)
 	} else {
 		cfg.oidcID = oidcID
+	}
+
+	if botApiToken := os.Getenv(envBotAPIToken); botApiToken == "" {
+		return nil, setEnvErr(envBotAPIToken)
+	} else {
+		cfg.botAPIToken = botApiToken
 	}
 
 	cfg.listen = ":80"
@@ -105,10 +159,23 @@ func newApplication(cfg *config) (*application, error) {
 		return nil, fmt.Errorf("oidcAuth.NewDefaultAuthenticator : %v", err)
 	}
 
+	//Connect to db
+	db, err := connectToDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect do db : %v")
+	}
+
+	//Build dish repo
+	repo, err := dishRepo.NewMysqlRepo(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build mysql dish repo : %v", err)
+	}
+
 	app := application{
 		conf:          cfg,
 		authenticator: authenticator,
 		session:       session,
+		dishRepo:      repo,
 	}
 
 	app.router, err = app.setupRouter()
@@ -120,24 +187,53 @@ func newApplication(cfg *config) (*application, error) {
 
 }
 
+// connectToDB connects to the db waiting some tiem for the db to come online before giving up
+func connectToDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.DB, error) {
+
+	dsn := fmt.Sprintf("%v:%v@tcp(%v)/%v?parseTime=true", dbUser, dbPW, dbURL, dbName)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("sql.Open dsn %v : %v", dsn, err)
+	}
+
+	log.Printf("Trying to connect to db...")
+	retries := 10
+	connected := false
+	for retries > 0 && !connected {
+		pingCtx, pingCancel := context.WithTimeout(ctx, 10*time.Second)
+		err := db.PingContext(pingCtx)
+		if err != nil {
+			log.Printf("Error connecting to db : %v", err)
+			log.Printf("%v retries remaining", retries)
+			retries -= 1
+			time.Sleep(3 * time.Second)
+		} else {
+			log.Printf("Connected to db")
+			connected = true
+		}
+		pingCancel()
+	}
+
+	if !connected {
+		return nil, fmt.Errorf("error connecting to db")
+	}
+
+	return db, nil
+}
+
 func (app *application) setupRouter() (chi.Router, error) {
 	log.Printf("Configuring router...")
 	router := chi.NewRouter()
-	router.Use(app.session.LoadAndSave)
-	router.Use(app.authenticator.CheckSession)
 
 	router.Handle("/callback", http.HandlerFunc(app.authenticator.CallbackHandler))
 	router.Handle("/login", http.HandlerFunc(app.authenticator.LoginHandler))
 	router.Handle("/logout", http.HandlerFunc(app.authenticator.LogoutHandler))
 
 	//Builder User API for dishes
-	swagger, err := userAPI.GetSwagger()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load swagger spec : %v", err)
-	}
-	swagger.Servers = nil
 
 	userAPiRouter := chi.NewRouter()
+	userAPiRouter.Use(app.session.LoadAndSave)
+	userAPiRouter.Use(app.authenticator.CheckSession)
 	//only allow authenticated and setup context as api expects is
 	userAPiRouter.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +260,28 @@ func (app *application) setupRouter() (chi.Router, error) {
 	userAPIHandlers := userAPI.NewStrictHandler(userAPIServer, nil)
 	userAPI.HandlerFromMux(userAPIHandlers, userAPiRouter)
 	router.Mount("/userAPI/v1", userAPiRouter)
+
+	//Build bot api
+	botAPIRouter := chi.NewRouter()
+
+	botAPIRouter.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("Bot APi api middleware called")
+			gotAPIKey := r.Header.Get("X-API-KEY")
+			log.Printf("parsed api key %v", gotAPIKey)
+			if 0 == subtle.ConstantTimeCompare([]byte(gotAPIKey), []byte(app.conf.botAPIToken)) {
+				log.Printf("wrong api key")
+				http.Error(w, "", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
+	botAPIServer := botAPI.NewService(app.dishRepo)
+	botAPIHandlers := botAPI.NewStrictHandler(botAPIServer, nil)
+	botAPI.HandlerFromMux(botAPIHandlers, botAPIRouter)
+	router.Mount("/botAPI/v1", botAPIRouter)
 
 	return router, nil
 }

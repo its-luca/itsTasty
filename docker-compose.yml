@@ -8,6 +8,11 @@ services:
       - OIDC_CALLBACK_URL
       - OIDC_PROVIDER_URL
       - OIDC_ID
+      - BOT_API_TOKEN
+      - DB_URL
+      - DB_NAME
+      - DB_USER
+      - DB_PW
     ports:
       - "8080:80"
 
