@@ -80,6 +80,7 @@ components:
         dishID:
           description: ID of the searched dish if it was found. Omitted otherwise
           type: integer
+          format: int64
         dishName:
           description: Name of the searched ish
       required:
@@ -90,6 +91,7 @@ components:
       type: array
       items:
         type: integer
+        format: int64
         description: dishID
 
 
@@ -146,6 +148,7 @@ paths:
           name: dishID
           schema:
             type: integer
+            format: int64
           required: true
       requestBody:
         required: true
@@ -179,6 +182,7 @@ paths:
           name: dishID
           schema:
             type: integer
+            format: int64
           required: true
       responses:
         '200':

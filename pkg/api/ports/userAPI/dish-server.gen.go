@@ -24,10 +24,10 @@ import (
 type ServerInterface interface {
 
 	// (GET /dishes/{dishID})
-	GetDishesDishID(w http.ResponseWriter, r *http.Request, dishID int)
+	GetDishesDishID(w http.ResponseWriter, r *http.Request, dishID int64)
 
 	// (POST /dishes/{dishID})
-	PostDishesDishID(w http.ResponseWriter, r *http.Request, dishID int)
+	PostDishesDishID(w http.ResponseWriter, r *http.Request, dishID int64)
 
 	// (GET /getAllDishes)
 	GetGetAllDishes(w http.ResponseWriter, r *http.Request)
@@ -52,7 +52,7 @@ func (siw *ServerInterfaceWrapper) GetDishesDishID(w http.ResponseWriter, r *htt
 	var err error
 
 	// ------------- Path parameter "dishID" -------------
-	var dishID int
+	var dishID int64
 
 	err = runtime.BindStyledParameterWithLocation("simple", false, "dishID", runtime.ParamLocationPath, chi.URLParam(r, "dishID"), &dishID)
 	if err != nil {
@@ -78,7 +78,7 @@ func (siw *ServerInterfaceWrapper) PostDishesDishID(w http.ResponseWriter, r *ht
 	var err error
 
 	// ------------- Path parameter "dishID" -------------
-	var dishID int
+	var dishID int64
 
 	err = runtime.BindStyledParameterWithLocation("simple", false, "dishID", runtime.ParamLocationPath, chi.URLParam(r, "dishID"), &dishID)
 	if err != nil {
@@ -257,7 +257,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 }
 
 type GetDishesDishIDRequestObject struct {
-	DishID int `json:"dishID"`
+	DishID int64 `json:"dishID"`
 }
 
 type GetDishesDishID200JSONResponse GetDishResp
@@ -285,7 +285,7 @@ func (t GetDishesDishID500JSONResponse) MarshalJSON() ([]byte, error) {
 }
 
 type PostDishesDishIDRequestObject struct {
-	DishID int `json:"dishID"`
+	DishID int64 `json:"dishID"`
 	Body   *PostDishesDishIDJSONRequestBody
 }
 
@@ -394,7 +394,7 @@ type strictHandler struct {
 }
 
 // GetDishesDishID operation middleware
-func (sh *strictHandler) GetDishesDishID(w http.ResponseWriter, r *http.Request, dishID int) {
+func (sh *strictHandler) GetDishesDishID(w http.ResponseWriter, r *http.Request, dishID int64) {
 	var request GetDishesDishIDRequestObject
 
 	request.DishID = dishID
@@ -434,7 +434,7 @@ func (sh *strictHandler) GetDishesDishID(w http.ResponseWriter, r *http.Request,
 }
 
 // PostDishesDishID operation middleware
-func (sh *strictHandler) PostDishesDishID(w http.ResponseWriter, r *http.Request, dishID int) {
+func (sh *strictHandler) PostDishesDishID(w http.ResponseWriter, r *http.Request, dishID int64) {
 	var request PostDishesDishIDRequestObject
 
 	request.DishID = dishID
@@ -564,27 +564,27 @@ func writeRaw(w http.ResponseWriter, b []byte) {
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

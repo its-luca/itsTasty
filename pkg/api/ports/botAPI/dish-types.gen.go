@@ -28,7 +28,7 @@ type CreateOrUpdateDishResp struct {
 	CreatedNewDish bool `json:"createdNewDish"`
 
 	// DishID ID of the created/updated dish. Just there to make subsequent calls easier
-	DishID int `json:"dishID"`
+	DishID int64 `json:"dishID"`
 }
 
 // GetDishResp Detailed description of a dish

@@ -22,10 +22,36 @@ func NewRatingFromInt(r int) (Rating, error) {
 	return Rating(r), nil
 }
 
+// NowWithDayPrecision returns time.Now() with hour, min, sec and nsec set to zero
+func NowWithDayPrecision() time.Time {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+}
+
 type DishRating struct {
 	Who   string
 	Value Rating
 	When  time.Time
+}
+
+func NewDishRating(who string, rating Rating, when time.Time) DishRating {
+	return DishRating{
+		Who:   who,
+		Value: rating,
+		When:  when,
+	}
+}
+
+func NewDishRatingFromDB(who string, rating int, when time.Time) (DishRating, error) {
+	r, err := NewRatingFromInt(rating)
+	if err != nil {
+		return DishRating{}, err
+	}
+	return DishRating{
+		Who:   who,
+		Value: r,
+		When:  when,
+	}, nil
 }
 
 type DishRatings struct {
@@ -73,10 +99,17 @@ type Dish struct {
 }
 
 // NewDishToday creates a new dish that was first served today
-func NewDishToday(name string) Dish {
-	return Dish{
+func NewDishToday(name string) *Dish {
+	return &Dish{
 		Name:       name,
-		occurences: []time.Time{time.Now()},
+		occurences: []time.Time{NowWithDayPrecision()},
+	}
+}
+
+func NewDishFromDB(name string, occurrences []time.Time) *Dish {
+	return &Dish{
+		Name:       name,
+		occurences: occurrences,
 	}
 }
 
@@ -85,7 +118,7 @@ func (d *Dish) Occurrences() []time.Time {
 	return d.occurences
 }
 
-func onSameDay(t1, t2 time.Time) bool {
+func OnSameDay(t1, t2 time.Time) bool {
 	if t1.Year() != t2.Year() {
 		return false
 	}
@@ -98,13 +131,18 @@ func onSameDay(t1, t2 time.Time) bool {
 	return true
 }
 
+/*TODO: MarkAsServedToday is currently not connected to a backend updated function
+updating the whole Dish object at once is awkward. Currently there is a dedicated function
+to update serving/occurrences
+*/
+
 // MarkAsServedToday registers that this dish was served today.
 // Calling this multiple times on the same day has no effect
 func (d *Dish) MarkAsServedToday() {
 	//only add one entry per day
-	if onSameDay(d.occurences[len(d.occurences)-1], time.Now()) {
+	if OnSameDay(d.occurences[len(d.occurences)-1], time.Now()) {
 		return
 	}
 
-	d.occurences = append(d.occurences, time.Now())
+	d.occurences = append(d.occurences, NowWithDayPrecision())
 }

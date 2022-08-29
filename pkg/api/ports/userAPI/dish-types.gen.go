@@ -31,7 +31,7 @@ type BasicError struct {
 }
 
 // GetAllDishesResponse Array with all known dish IDs
-type GetAllDishesResponse = []int
+type GetAllDishesResponse = []int64
 
 // GetDishResp Detailed description of a dish
 type GetDishResp struct {
@@ -74,7 +74,7 @@ type SearchDishReq struct {
 // SearchDishResp Contains the dishID the requested dish
 type SearchDishResp struct {
 	// DishID ID of the searched dish if it was found. Omitted otherwise
-	DishID *int `json:"dishID,omitempty"`
+	DishID *int64 `json:"dishID,omitempty"`
 
 	// DishName Name of the searched ish
 	DishName interface{} `json:"dishName"`

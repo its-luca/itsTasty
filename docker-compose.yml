@@ -1,12 +1,30 @@
 version: '3.3'
 services:
-  its-tasty:
+  its-tasty-backend:
     image: "its-tasty:latest"
+    container_name: its-tasty-backend
     environment:
       - OIDC_SECRET
       - OIDC_CALLBACK_URL
       - OIDC_PROVIDER_URL
       - OIDC_ID
-    container_name: its-tasty
     ports:
       - "8080:80"
+
+
+  its-tasty-db:
+    image: mariadb:latest
+    container_name: its-tasty-db
+    environment:
+      - MARIADB_USER
+      - MARIADB_PASSWORD
+      - MYSQL_ROOT_PASSWORD
+      - MARIADB_DATABASE
+    volumes:
+      - db-data:/var/lib/mysql:rw
+    ports:
+      - "3306:3306"
+
+
+volumes:
+  db-data:

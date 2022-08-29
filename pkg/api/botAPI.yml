@@ -69,6 +69,7 @@ components:
         dishID:
           description: ID of the created/updated dish. Just there to make subsequent calls easier
           type: integer
+          format: int64
       required:
         - createdNewDish
         - dishID
@@ -86,6 +87,7 @@ paths:
           name: dishID
           schema:
             type: integer
+            format: int64
           required: true
       responses:
         200:

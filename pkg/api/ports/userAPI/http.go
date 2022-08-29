@@ -60,7 +60,7 @@ func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishID
 	//Get Rating Of User for Dish
 	dbErrGroup.Go(func() error {
 		var err error
-		dishRatignOfUser, _, err = h.repo.GetRating(dbErrGroupCtx, userEmail, request.DishID)
+		dishRatignOfUser, err = h.repo.GetRating(dbErrGroupCtx, userEmail, request.DishID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				dishRatignOfUser = nil
@@ -164,7 +164,7 @@ func (h HttpServer) PostDishesDishID(ctx context.Context, request PostDishesDish
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 
-	if err := h.repo.SetRating(dbCtx, userEmail, request.DishID, dishRating); err != nil {
+	if _, err := h.repo.SetOrCreateRating(dbCtx, userEmail, request.DishID, dishRating); err != nil {
 		log.Printf("SetRating for dishID %v by user %v : %v", request.DishID, userEmail, err)
 		if errors.Is(err, domain.ErrNotFound) {
 			return PostDishesDishID404Response{}

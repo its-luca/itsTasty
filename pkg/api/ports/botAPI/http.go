@@ -33,9 +33,17 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 
 	dbCtx, dbCancel = context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
-	err = s.repo.UpdateDish(dbCtx, dishID, func(d *domain.Dish) error {
-		d.MarkAsServedToday()
-		return nil
+
+	err = s.repo.UpdateMostRecentServing(dbCtx, dishID, func(currenMostRecent *time.Time) (*time.Time, error) {
+		if currenMostRecent == nil {
+			newMostRecentServing := domain.NowWithDayPrecision()
+			return &newMostRecentServing, nil
+		}
+		if !domain.OnSameDay(*currenMostRecent, time.Now()) {
+			newMostRecentServing := domain.NowWithDayPrecision()
+			return &newMostRecentServing, nil
+		}
+		return nil, nil
 	})
 	if err != nil {
 		log.Printf("UPdateDish for dishID %v : %v", dishID, err)
