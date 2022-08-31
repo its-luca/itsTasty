@@ -32,6 +32,9 @@ components:
         name:
           description: Name of the dish
           type: string
+        servedAt:
+          description: Location where this dish is served
+          type: string
         occurrenceCount:
           description: Amount of times this dish occurred
           type: integer
@@ -59,6 +62,7 @@ components:
         - occurrenceCount
         - recentOccurrences
         - ratings
+        - servedAt
 
     SearchDishReq:
       description: Request to lookup a dishID by the dish name
@@ -67,8 +71,12 @@ components:
         dishName:
           description: Dish to search for
           type: string
+        servedAt:
+          description: Name of the location where this dish is served
+          type: string
       required:
         - dishName
+        - servedAt
 
     SearchDishResp:
       description: Contains the dishID the requested dish

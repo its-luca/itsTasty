@@ -30,7 +30,7 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 
-	_, justCreated, dishID, err := s.repo.GetOrCreateDish(dbCtx, request.Body.DishName)
+	_, createdDish, createdLocation, dishID, err := s.repo.GetOrCreateDish(dbCtx, request.Body.DishName, request.Body.ServedAt)
 	if err != nil {
 		log.Printf("GetOrCreateDish for dishName %v : %v", request.Body.DishName, err)
 		return PostCreateOrUpdateDish500JSONResponse{}
@@ -61,8 +61,9 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 	//
 
 	return PostCreateOrUpdateDish200JSONResponse{
-		CreatedNewDish: justCreated,
-		DishID:         dishID,
+		CreatedNewDish:     createdDish,
+		CreatedNewLocation: createdLocation,
+		DishID:             dishID,
 	}
 
 }

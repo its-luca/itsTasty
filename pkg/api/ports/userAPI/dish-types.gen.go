@@ -52,6 +52,9 @@ type GetDishResp struct {
 
 	// RecentOccurrences Most recent occurrences of the dish. Might not contain the whole history
 	RecentOccurrences []openapi_types.Date `json:"recentOccurrences"`
+
+	// ServedAt Location where this dish is served
+	ServedAt string `json:"servedAt"`
 }
 
 // GetDishRespRatingOfUser Rating for this dish of the requesting user. Omitted if the user has not rated yet.
@@ -69,6 +72,9 @@ type RateDishReqRating int
 type SearchDishReq struct {
 	// DishName Dish to search for
 	DishName string `json:"dishName"`
+
+	// ServedAt Name of the location where this dish is served
+	ServedAt string `json:"servedAt"`
 }
 
 // SearchDishResp Contains the dishID the requested dish

@@ -52,7 +52,7 @@ func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishID
 	dbErrGroup, dbErrGroupCtx := errgroup.WithContext(dbCtx)
 
 	//Fill the following vars with background jobs
-	var dishRatignOfUser *domain.DishRating
+	var dishRatingOfUser *domain.DishRating
 	var dish *domain.Dish
 	var dishRatings *domain.DishRatings
 	dishNotFound := false
@@ -60,10 +60,10 @@ func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishID
 	//Get Rating Of User for Dish
 	dbErrGroup.Go(func() error {
 		var err error
-		dishRatignOfUser, err = h.repo.GetRating(dbErrGroupCtx, userEmail, request.DishID)
+		dishRatingOfUser, err = h.repo.GetRating(dbErrGroupCtx, userEmail, request.DishID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
-				dishRatignOfUser = nil
+				dishRatingOfUser = nil
 				return nil
 			}
 			return fmt.Errorf("GetRating : %v", err)
@@ -123,6 +123,7 @@ func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishID
 	response := GetDishesDishID200JSONResponse{
 		AvgRating:         nil, //updated below if data is available
 		Name:              dish.Name,
+		ServedAt:          dish.ServedAt,
 		OccurrenceCount:   len(dish.Occurrences()),
 		RatingOfUser:      nil, //updated below if data is available
 		Ratings:           ratings,
@@ -133,8 +134,8 @@ func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishID
 		response.AvgRating = &avgRating
 	}
 
-	if dishRatignOfUser != nil {
-		v := GetDishRespRatingOfUser(dishRatignOfUser.Value)
+	if dishRatingOfUser != nil {
+		v := GetDishRespRatingOfUser(dishRatingOfUser.Value)
 		response.RatingOfUser = &v
 	}
 
@@ -192,7 +193,7 @@ func (h HttpServer) GetGetAllDishes(ctx context.Context, _ GetGetAllDishesReques
 func (h HttpServer) PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) interface{} {
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
-	_, dishID, err := h.repo.GetDishByName(dbCtx, request.Body.DishName)
+	_, dishID, err := h.repo.GetDishByName(dbCtx, request.Body.DishName, request.Body.ServedAt)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return PostSearchDish200JSONResponse{

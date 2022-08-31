@@ -162,7 +162,7 @@ func newApplication(cfg *config) (*application, error) {
 	//Connect to db
 	db, err := connectToDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect do db : %v")
+		return nil, fmt.Errorf("failed to connect do db : %v", err)
 	}
 
 	//Build dish repo

@@ -20,12 +20,18 @@ type BasicError struct {
 type CreateOrUpdateDishReq struct {
 	// DishName Name of the dish to be created / updated
 	DishName string `json:"dishName"`
+
+	// ServedAt Location where this dish is served
+	ServedAt string `json:"servedAt"`
 }
 
 // CreateOrUpdateDishResp Inform if dish was created or just updated and return its ID
 type CreateOrUpdateDishResp struct {
 	// CreatedNewDish True if a new dish was created
 	CreatedNewDish bool `json:"createdNewDish"`
+
+	// CreatedNewLocation True if a new location was created
+	CreatedNewLocation bool `json:"createdNewLocation"`
 
 	// DishID ID of the created/updated dish. Just there to make subsequent calls easier
 	DishID int64 `json:"dishID"`
@@ -42,11 +48,14 @@ type GetDishResp struct {
 	// OccurrenceCount Amount of times this dish occurred
 	OccurrenceCount int `json:"occurrenceCount"`
 
-	// Ratings Ratings for this dish. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
+	// Ratings Ratings for this dish. Keys mean "stars" and values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
 	Ratings map[string]int `json:"ratings"`
 
 	// RecentOccurrences Most recent occurrences of the dish. Might not contain the whole history
 	RecentOccurrences []openapi_types.Date `json:"recentOccurrences"`
+
+	// ServedAt Location where this dish is served
+	ServedAt string `json:"servedAt"`
 }
 
 // PostCreateOrUpdateDishJSONRequestBody defines body for PostCreateOrUpdateDish for application/json ContentType.

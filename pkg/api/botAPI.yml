@@ -24,6 +24,9 @@ components:
         name:
           description: Name of the dish
           type: string
+        servedAt:
+          description: Location where this dish is served
+          type: string
         occurrenceCount:
           description: Amount of times this dish occurred
           type: integer
@@ -47,6 +50,7 @@ components:
         - occurrenceCount
         - recentOccurrences
         - ratings
+        - servedAt
     CreateOrUpdateDishReq:
       description: Transmit data for dish creation
       type: object
@@ -54,8 +58,12 @@ components:
         dishName:
           description: Name of the dish to be created / updated
           type: string
+        servedAt:
+          description: Location where this dish is served
+          type: string
       required:
         - dishName
+        - servedAt
 
     CreateOrUpdateDishResp:
       type: object
@@ -64,6 +72,9 @@ components:
         createdNewDish:
           description: True if a new dish was created
           type: boolean
+        createdNewLocation:
+          description: True if a new location was created
+          type: boolean
         dishID:
           description: ID of the created/updated dish. Just there to make subsequent calls easier
           type: integer
@@ -71,6 +82,7 @@ components:
       required:
         - createdNewDish
         - dishID
+        - createdNewLocation
 
 
 security:

@@ -6,9 +6,18 @@ const createUserTable = `create table if not exists users (
     created datetime not null comment 'Time when this user was first created'
 ) comment 'Store all known users' ;`
 
+const createLocationTable = `create table if not exists locations (
+    id int auto_increment primary key comment 'Primary Key',
+    name varchar(200) not null unique comment 'Name of the location',
+    created datetime not null comment  'Datetime when this entry was created'
+) comment 'Store locations where dishes are served';`
+
 const createDishTable = `create table if not exists dishes (
     id int auto_increment primary key comment 'Primary Key',
-    name varchar(1000) not null unique comment 'Name of the dish'
+    location_id int not null comment  'FK to location where this dish is served',
+    name varchar(1000) not null comment 'Name of the dish',
+    constraint fk_dishes_locations_location_id foreign key (location_id) references locations(id) on delete restrict,
+  	constraint unique unique_dish_per_location (name,location_id) comment 'For a given location each dish name must be unique'
 ) comment 'Store all known dishes';`
 
 const createDishOccurrencesTable = `create table if not exists dish_occurrences (

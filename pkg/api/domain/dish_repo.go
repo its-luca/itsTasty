@@ -14,11 +14,13 @@ type DishRepo interface {
 	// Manipulate Dish struct
 	//
 
-	//GetOrCreateDish fetches the dish or creates a new one if it does not exist
-	//Second result indicates if new dish was created. Third result is the id of the new dish
-	GetOrCreateDish(ctx context.Context, dishName string) (dish *Dish, isNew bool, dishID int64, err error)
+	//GetOrCreateDish fetches the dish or creates a new one if it does not exist. The same is true
+	//for the location denoted by servedAt.
+	//The two bool results indicate whether a new dish and/or a new location was created.
+	//The int64 result is the id of the dish
+	GetOrCreateDish(ctx context.Context, dishName string, servedAt string) (*Dish, bool, bool, int64, error)
 	//GetDishByName fetches the dish. The second result is the id of the dish
-	GetDishByName(ctx context.Context, dishName string) (dish *Dish, dishID int64, err error)
+	GetDishByName(ctx context.Context, dishName, servedAt string) (dish *Dish, dishID int64, err error)
 	//GetDishByID fetches the dish
 	GetDishByID(ctx context.Context, dishID int64) (dish *Dish, err error)
 

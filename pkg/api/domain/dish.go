@@ -94,21 +94,25 @@ func (d *DishRatings) Ratings() map[Rating]int {
 type Dish struct {
 	//Name of this dish
 	Name string
+	//ServedAt is the location where the dish is served
+	ServedAt string
 	//occurences stores the Dates on which this dish was served
 	occurences []time.Time
 }
 
 // NewDishToday creates a new dish that was first served today
-func NewDishToday(name string) *Dish {
+func NewDishToday(name string, servedAt string) *Dish {
 	return &Dish{
 		Name:       name,
+		ServedAt:   servedAt,
 		occurences: []time.Time{NowWithDayPrecision()},
 	}
 }
 
-func NewDishFromDB(name string, occurrences []time.Time) *Dish {
+func NewDishFromDB(name, servedAt string, occurrences []time.Time) *Dish {
 	return &Dish{
 		Name:       name,
+		ServedAt:   servedAt,
 		occurences: occurrences,
 	}
 }

@@ -23,8 +23,9 @@ type sqlContextPreparer interface {
 	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
 }
 
-type dishTableDTO struct {
-	Name string
+type basicDishInfoDTO struct {
+	Name     string
+	ServedAt string
 }
 
 type MysqlRepo struct {
@@ -40,6 +41,7 @@ func NewMysqlRepo(db *sql.DB) (*MysqlRepo, error) {
 		stmt string
 	}{
 		{name: "user", stmt: createUserTable},
+		{name: "location", stmt: createLocationTable},
 		{name: "dish", stmt: createDishTable},
 		{name: "dish occurrences", stmt: createDishOccurrencesTable},
 		{name: "user ratings", stmt: createDishRatingsTable},
@@ -199,7 +201,92 @@ func (m *MysqlRepo) getAllOccurrencesForDish(ctx context.Context, dbTX sqlContex
 	return occurrences, nil
 }
 
-func (m *MysqlRepo) createDishToday(ctx context.Context, dishName string) (dish *domain.Dish, dishID int64, err error) {
+func (m *MysqlRepo) getLocation(ctx context.Context, dbTX sqlContextPreparer, locationName string) (int64, error) {
+	const rawStmt = `select id from locations where name = ?`
+	stmt, err := dbTX.PrepareContext(ctx, rawStmt)
+	if err != nil {
+		return 0, fmt.Errorf("PrepareContext for \"%v\" : %v", rawStmt, err)
+	}
+	defer func(stmt *sql.Stmt) {
+		err := stmt.Close()
+		if err != nil {
+			log.Printf("Failed to clase stmt : %v", err)
+		}
+	}(stmt)
+
+	res, err := stmt.QueryContext(ctx, locationName)
+	if err != nil {
+		return 0, fmt.Errorf("QueryContext for \"%v\" : %w", rawStmt, err)
+	}
+	defer func(res *sql.Rows) {
+		err := res.Close()
+		if err != nil {
+			log.Printf("Failed to close rows : %v", err)
+		}
+	}(res)
+
+	haveEntry := res.Next()
+	if err := res.Err(); err != nil {
+		return 0, fmt.Errorf("res.Err : %w", err)
+	}
+	if !haveEntry {
+		return 0, domain.ErrNotFound
+	}
+
+	var id int64
+	if err := res.Scan(&id); err != nil {
+		return 0, fmt.Errorf("parsing user id : %w", err)
+	}
+
+	return id, nil
+}
+
+func (m *MysqlRepo) createLocation(ctx context.Context, dbTX sqlContextPreparer, locationName string, creationTime time.Time) (int64, error) {
+	const rawStmt = `insert into locations(name,created) VALUES (?,?)`
+	stmt, err := dbTX.PrepareContext(ctx, rawStmt)
+	if err != nil {
+		return 0, fmt.Errorf("PrepareContext for %v : %v", rawStmt, err)
+	}
+	defer func(stmt *sql.Stmt) {
+		err := stmt.Close()
+		if err != nil {
+			log.Printf("Failed to clase stmt : %v", err)
+		}
+	}(stmt)
+
+	res, err := stmt.ExecContext(ctx, locationName, creationTime)
+	if err != nil {
+		return 0, fmt.Errorf("stmt %v : %w", rawStmt, err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("LastInsertId : %w", err)
+	}
+
+	return id, nil
+}
+
+func (m *MysqlRepo) getOrCreateLocation(ctx context.Context, dbTX sqlContextPreparer, locationName string) (int64, bool, error) {
+	locationID, err := m.getLocation(ctx, dbTX, locationName)
+	if err == nil {
+		log.Printf("Get location ")
+		return locationID, false, nil
+	}
+	//there was an error
+	if !errors.Is(err, domain.ErrNotFound) {
+		return 0, false, fmt.Errorf("getLocation : %w", err)
+	}
+	//error was domain.ErrNotFound
+	locationID, err = m.createLocation(ctx, dbTX, locationName, time.Now())
+	if err != nil {
+		return 0, false, fmt.Errorf("createLocation : %w", err)
+	}
+
+	return locationID, true, nil
+}
+
+func (m *MysqlRepo) createDishToday(ctx context.Context, dishName string, servedAt string) (dish *domain.Dish, dishID int64, createdLocation bool, err error) {
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
 		err = fmt.Errorf("BeginTX : %w", err)
@@ -209,16 +296,23 @@ func (m *MysqlRepo) createDishToday(ctx context.Context, dishName string) (dish 
 		err = m.finishTransaction(err, tx)
 	}()
 
-	dish = domain.NewDishToday(dishName)
+	dish = domain.NewDishToday(dishName, servedAt)
 
+	//First create location if it does not yet exist
+	var locationID int64
+	locationID, createdLocation, err = m.getOrCreateLocation(ctx, tx, servedAt)
+	if err != nil {
+		err = fmt.Errorf("getOrCreateLocation : %w", err)
+		return
+	}
 	//
-	//First create entry in dish table
+	//Then create entry in dish table
 	//
 
-	const rawDishStmt = `insert into dishes(name) VALUES (?)`
+	const rawDishStmt = `insert into dishes(name,location_id) VALUES (?,?)`
 	dishStmt, err := tx.PrepareContext(ctx, rawDishStmt)
 	if err != nil {
-		return nil, 0, fmt.Errorf("PrepareContext for %v : %w", rawDishStmt, err)
+		return nil, 0, false, fmt.Errorf("PrepareContext for %v : %w", rawDishStmt, err)
 	}
 	defer func(stmt *sql.Stmt) {
 		err := stmt.Close()
@@ -227,22 +321,22 @@ func (m *MysqlRepo) createDishToday(ctx context.Context, dishName string) (dish 
 		}
 	}(dishStmt)
 
-	res, err := dishStmt.ExecContext(ctx, dish.Name)
+	res, err := dishStmt.ExecContext(ctx, dish.Name, locationID)
 	if err != nil {
 		mysqlErr := &mysql.MySQLError{}
 		if errors.As(err, &mysqlErr) {
 			if mysqlErr.Number == codeDuplicateEntry {
-				log.Printf("createDishToday aborting with already exists")
+				log.Printf("failed to insert new dish : %v", err)
 				err = alreadyExists
 				return
 			}
 		}
-		return nil, 0, fmt.Errorf("dishStmt %v : %w", rawDishStmt, err)
+		return nil, 0, false, fmt.Errorf("dishStmt %v : %w", rawDishStmt, err)
 
 	}
 	dishID, err = res.LastInsertId()
 	if err != nil {
-		return nil, 0, fmt.Errorf("LastInsertID : %w", err)
+		return nil, 0, false, fmt.Errorf("LastInsertID : %w", err)
 	}
 
 	if err := dishStmt.Close(); err != nil {
@@ -255,7 +349,7 @@ func (m *MysqlRepo) createDishToday(ctx context.Context, dishName string) (dish 
 	const rawOccurrenceStmt = `insert into dish_occurrences(dish_id,date) VALUES (?,?)`
 	occurrenceStmt, err := tx.PrepareContext(ctx, rawOccurrenceStmt)
 	if err != nil {
-		return nil, 0, fmt.Errorf("PrepareContext for \"%v\" : %w", rawOccurrenceStmt, err)
+		return nil, 0, false, fmt.Errorf("PrepareContext for \"%v\" : %w", rawOccurrenceStmt, err)
 	}
 	defer func(stmt *sql.Stmt) {
 		err := stmt.Close()
@@ -268,35 +362,35 @@ func (m *MysqlRepo) createDishToday(ctx context.Context, dishName string) (dish 
 	for i := range occurrenceValues {
 		v := &occurrenceValues[i]
 		if _, err := occurrenceStmt.ExecContext(ctx, dishID, v); err != nil {
-			return nil, 0, fmt.Errorf("ExecContext on \"%v\" for dishID=%v,date=%v : %w", rawOccurrenceStmt, dishID, v, err)
+			return nil, 0, false, fmt.Errorf("ExecContext on \"%v\" for dishID=%v,date=%v : %w", rawOccurrenceStmt, dishID, v, err)
 		}
 	}
 
-	return dish, dishID, nil
+	return dish, dishID, createdLocation, nil
 }
 
-func (m *MysqlRepo) GetOrCreateDish(ctx context.Context, dishName string) (*domain.Dish, bool, int64, error) {
-	dish, dishID, err := m.createDishToday(ctx, dishName)
+func (m *MysqlRepo) GetOrCreateDish(ctx context.Context, dishName string, servedAt string) (*domain.Dish, bool, bool, int64, error) {
+	dish, dishID, createdLocation, err := m.createDishToday(ctx, dishName, servedAt)
 	if err == nil {
-		return dish, true, dishID, nil
+		return dish, true, createdLocation, dishID, nil
 	}
 	//got error
 	if !errors.Is(err, alreadyExists) {
-		return nil, false, 0, fmt.Errorf("failed to create dish : %w", err)
+		return nil, false, false, 0, fmt.Errorf("failed to create dish : %w", err)
 	}
 
 	//if we are here, we got already exists error -> fetch dish
-	log.Printf("GetOrCreate recognized already exists and fetches")
-	dish, dishID, err = m.GetDishByName(ctx, dishName)
+	dish, dishID, err = m.GetDishByName(ctx, dishName, servedAt)
 	if err != nil {
-		return nil, false, 0, fmt.Errorf("failed to get dish %w", err)
+		return nil, false, false, 0, fmt.Errorf("failed to get dish %w", err)
 	}
 
-	return dish, false, dishID, nil
+	return dish, false, false, dishID, nil
 }
 
-func (m *MysqlRepo) getDishTableDTO(ctx context.Context, dbTX sqlContextPreparer, dishID int64) (*dishTableDTO, error) {
-	const rawStmt = `select name from dishes where id = ?`
+func (m *MysqlRepo) getDishTableDTO(ctx context.Context, dbTX sqlContextPreparer, dishID int64) (*basicDishInfoDTO, error) {
+	const rawStmt = `select dishes.name,locations.name from dishes join locations on dishes.location_id = locations.id 
+                     where dishes.id = ?`
 	stmt, err := dbTX.PrepareContext(ctx, rawStmt)
 	if err != nil {
 		return nil, fmt.Errorf("PrepareContext for \"%v\" : %v", rawStmt, err)
@@ -327,16 +421,17 @@ func (m *MysqlRepo) getDishTableDTO(ctx context.Context, dbTX sqlContextPreparer
 		return nil, domain.ErrNotFound
 	}
 
-	var dto dishTableDTO
-	if err := res.Scan(&dto.Name); err != nil {
+	var dto basicDishInfoDTO
+	if err := res.Scan(&dto.Name, &dto.ServedAt); err != nil {
 		return nil, fmt.Errorf("parsing db result : %v", err)
 	}
 
 	return &dto, nil
 }
 
-func (m *MysqlRepo) getDishID(ctx context.Context, dbTX sqlContextPreparer, dishName string) (int64, error) {
-	rawStmt := `select id from dishes where name = ?`
+func (m *MysqlRepo) getDishID(ctx context.Context, dbTX sqlContextPreparer, dishName, servedAt string) (int64, error) {
+	rawStmt := `select dishes.id from dishes join locations on dishes.location_id = locations.id where dishes.name = ?
+ and locations.name = ?`
 	stmt, err := dbTX.PrepareContext(ctx, rawStmt)
 	if err != nil {
 		return 0, fmt.Errorf("PrepareContext for \"%v\" : %v", rawStmt, err)
@@ -348,7 +443,7 @@ func (m *MysqlRepo) getDishID(ctx context.Context, dbTX sqlContextPreparer, dish
 		}
 	}(stmt)
 
-	res, err := stmt.QueryContext(ctx, dishName)
+	res, err := stmt.QueryContext(ctx, dishName, servedAt)
 	if err != nil {
 		return 0, fmt.Errorf("QueryContext for \"%v\" : %w", rawStmt, err)
 	}
@@ -380,7 +475,7 @@ func (m *MysqlRepo) getDish(ctx context.Context, dbTX sqlContextPreparer, dishID
 	queryGroup, queryGroupCtx := errgroup.WithContext(ctx)
 
 	//Get basic dish info
-	var dishDTO *dishTableDTO
+	var dishDTO *basicDishInfoDTO
 	dishNotFound := false
 	queryGroup.Go(func() error {
 		var queryErr error
@@ -408,11 +503,11 @@ func (m *MysqlRepo) getDish(ctx context.Context, dbTX sqlContextPreparer, dishID
 		return nil, err
 	}
 
-	dish := domain.NewDishFromDB(dishDTO.Name, occurrences)
+	dish := domain.NewDishFromDB(dishDTO.Name, dishDTO.ServedAt, occurrences)
 	return dish, nil
 }
 
-func (m *MysqlRepo) getDishByName(ctx context.Context, dishName string) (dish *domain.Dish, dishID int64, err error) {
+func (m *MysqlRepo) getDishByName(ctx context.Context, dishName, servedAt string) (dish *domain.Dish, dishID int64, err error) {
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
 		err = fmt.Errorf("BeginTX : %w", err)
@@ -422,7 +517,7 @@ func (m *MysqlRepo) getDishByName(ctx context.Context, dishName string) (dish *d
 		err = m.finishTransaction(err, tx)
 	}()
 
-	dishID, err = m.getDishID(ctx, tx, dishName)
+	dishID, err = m.getDishID(ctx, tx, dishName, servedAt)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, 0, domain.ErrNotFound
@@ -442,12 +537,12 @@ func (m *MysqlRepo) getDishByName(ctx context.Context, dishName string) (dish *d
 	return
 }
 
-func (m *MysqlRepo) GetDishByName(ctx context.Context, dishName string) (dish *domain.Dish, dishID int64, err error) {
+func (m *MysqlRepo) GetDishByName(ctx context.Context, dishName, servedAt string) (dish *domain.Dish, dishID int64, err error) {
 
 	//FIXME: not sure why m.getDishByName sometimes causes bad connection. Retrying seems to mitigate it but need to investigate
 	retries := 3
 	for retries > 0 {
-		dish, dishID, err = m.getDishByName(ctx, dishName)
+		dish, dishID, err = m.getDishByName(ctx, dishName, servedAt)
 		if err != nil {
 			retries -= 1
 			continue
@@ -736,7 +831,7 @@ func (m *MysqlRepo) GetAllRatingsForDish(ctx context.Context, dishID int64) (*do
 
 func (m *MysqlRepo) DropRepo(ctx context.Context) error {
 
-	for _, table := range []string{"dish_ratings", "dish_occurrences", "users", "dishes"} {
+	for _, table := range []string{"dish_ratings", "dish_occurrences", "users", "dishes", "locations"} {
 		if _, err := m.db.ExecContext(ctx, fmt.Sprintf("drop table %v;", table)); err != nil {
 			return fmt.Errorf("dropping %v : %v", table, err)
 		}

@@ -7,7 +7,7 @@ import (
 )
 
 func newTestDishToday() Dish {
-	return NewDishToday("testDish")
+	return *NewDishToday("testDish", "testLocation")
 }
 
 func TestDish_AverageRating(t *testing.T) {
@@ -70,7 +70,7 @@ func TestDish_AverageRating(t *testing.T) {
 
 func TestDish_WasServedToday(t *testing.T) {
 
-	d := NewDishToday("testDish")
+	d := NewDishToday("testDish", "testLocation")
 	d.MarkAsServedToday()
 	d.MarkAsServedToday()
 

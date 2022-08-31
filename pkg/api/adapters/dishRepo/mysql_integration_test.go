@@ -185,26 +185,29 @@ func TestMysqlRepo_GetOrCreateDish_CreateAndQuery(t *testing.T) {
 	// Run Test
 	//
 
-	wantDish := domain.NewDishToday("Test Dish A")
+	wantDish := domain.NewDishToday("Test Dish A", "testLocation")
 	//Create new dish
-	gotNewDish, isNew, gotNewDishID, err := repo.GetOrCreateDish(context.Background(), wantDish.Name)
+	gotNewDish, createdNewDish, createdNewLocation, gotNewDishID, err := repo.GetOrCreateDish(context.Background(), wantDish.Name, wantDish.ServedAt)
 	require.NoError(t, err)
-	require.True(t, isNew)
+	require.True(t, createdNewDish)
+	require.True(t, createdNewLocation)
 
 	require.Equal(t, wantDish.Name, gotNewDish.Name)
-	//We cannot directly check the time as it it generated based on time.Now
+	require.Equal(t, wantDish.ServedAt, gotNewDish.ServedAt)
+	//We cannot directly check the time as it is generated based on time.Now
 	require.Equal(t, 1, len(gotNewDish.Occurrences()))
 	require.True(t, gotNewDish.Occurrences()[0].Sub(time.Now()) < 10*time.Second)
 
 	//Call again with same dish name -> expect to get dish instead of creating one
-	gotExistingDish, isNew, gotExistingDishID, err := repo.GetOrCreateDish(context.Background(), wantDish.Name)
+	gotExistingDish, createdNewDish, createdNewLocation, gotExistingDishID, err := repo.GetOrCreateDish(context.Background(), wantDish.Name, wantDish.ServedAt)
 	require.NoError(t, err)
-	require.False(t, isNew)
+	require.False(t, createdNewDish)
+	require.False(t, createdNewLocation)
 	require.Equal(t, gotNewDishID, gotExistingDishID)
 	require.Equal(t, gotNewDish, gotExistingDish)
 
 	//Call GetDishByName  on existing dish
-	gotExistingDish, gotExistingDishID, err = repo.GetDishByName(context.Background(), wantDish.Name)
+	gotExistingDish, gotExistingDishID, err = repo.GetDishByName(context.Background(), wantDish.Name, wantDish.ServedAt)
 	require.NoError(t, err)
 	require.Equal(t, gotNewDishID, gotExistingDishID)
 	require.Equal(t, gotNewDish, gotExistingDish)
@@ -213,6 +216,13 @@ func TestMysqlRepo_GetOrCreateDish_CreateAndQuery(t *testing.T) {
 	gotExistingDish, err = repo.GetDishByID(context.Background(), gotNewDishID)
 	require.NoError(t, err)
 	require.Equal(t, gotNewDish, gotExistingDish)
+
+	//Call GetOrCreateDish on dish with same name but different location
+	_, createdNewDish, createdNewLocation, gotDishID, err := repo.GetOrCreateDish(context.Background(), wantDish.Name, "newLocation")
+	require.NoError(t, err)
+	require.True(t, createdNewDish)
+	require.True(t, createdNewLocation)
+	require.NotEqual(t, gotDishID, gotNewDish)
 }
 
 func TestMysqlRepo_GetOrCreateDish_CheckNotFoundError(t *testing.T) {
@@ -241,7 +251,7 @@ func TestMysqlRepo_GetOrCreateDish_CheckNotFoundError(t *testing.T) {
 	// Run Test
 	//
 
-	_, _, err = repo.GetDishByName(context.Background(), "does not exist")
+	_, _, err = repo.GetDishByName(context.Background(), "does not exist", "someLocation")
 	require.Equal(t, err, domain.ErrNotFound)
 
 	_, err = repo.GetDishByID(context.Background(), 42)
@@ -280,7 +290,7 @@ func TestMysqlRepo_GetAllDishIDs(t *testing.T) {
 	require.Equal(t, 0, len(ids))
 
 	//Create dish and query again
-	_, _, dishID, err := repo.GetOrCreateDish(context.Background(), "testDish")
+	_, _, _, dishID, err := repo.GetOrCreateDish(context.Background(), "testDish", "testLocation")
 	require.NoError(t, err)
 	ids, err = repo.GetAllDishIDs(context.Background())
 	require.NoError(t, err)
@@ -313,9 +323,10 @@ func Test_SetOrCreateRating(t *testing.T) {
 	//add dish
 	const sampleDishName = "sampleDish"
 	const sampleUserEmail = "test@use.er"
-	_, isNew, sampleDishID, err := repo.GetOrCreateDish(context.Background(), sampleDishName)
+	_, isNewDish, isNewLocation, sampleDishID, err := repo.GetOrCreateDish(context.Background(), sampleDishName, "someLocation")
 	require.NoError(t, err)
-	require.True(t, isNew)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
 
 	//
 	// Run Test
@@ -326,7 +337,7 @@ func Test_SetOrCreateRating(t *testing.T) {
 
 	//Initial call should create new rating
 	initialDishRating := domain.NewDishRating(sampleUserEmail, domain.FiveStars, time.Now().Round(time.Second))
-	isNew, err = repo.SetOrCreateRating(context.Background(), sampleUserEmail, sampleDishID, initialDishRating)
+	isNew, err := repo.SetOrCreateRating(context.Background(), sampleUserEmail, sampleDishID, initialDishRating)
 	require.NoError(t, err)
 	require.True(t, isNew)
 
@@ -381,9 +392,10 @@ func TestMysqlRepo_UpdateMostRecentServing(t *testing.T) {
 	//add dish
 	const sampleDishName = "sampleDish"
 	const sampleUserEmail = "test@use.er"
-	_, isNew, sampleDishID, err := repo.GetOrCreateDish(context.Background(), sampleDishName)
+	_, isNewDish, isNewLocation, sampleDishID, err := repo.GetOrCreateDish(context.Background(), sampleDishName, "someLocation")
 	require.NoError(t, err)
-	require.True(t, isNew)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
 
 	//
 	// Run Test
