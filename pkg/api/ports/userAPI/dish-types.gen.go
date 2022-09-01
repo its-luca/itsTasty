@@ -60,6 +60,11 @@ type GetDishResp struct {
 // GetDishRespRatingOfUser Rating for this dish of the requesting user. Omitted if the user has not rated yet.
 type GetDishRespRatingOfUser int
 
+// GetUsersMeResp Information about the requesting user
+type GetUsersMeResp struct {
+	Email string `json:"email"`
+}
+
 // RateDishReq Request to vote for a dish
 type RateDishReq struct {
 	Rating RateDishReqRating `json:"rating"`

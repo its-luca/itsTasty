@@ -34,6 +34,9 @@ type ServerInterface interface {
 
 	// (POST /searchDish)
 	PostSearchDish(w http.ResponseWriter, r *http.Request)
+
+	// (GET /users/me)
+	GetUsersMe(w http.ResponseWriter, r *http.Request)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -118,6 +121,21 @@ func (siw *ServerInterfaceWrapper) PostSearchDish(w http.ResponseWriter, r *http
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PostSearchDish(w, r)
+	})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// GetUsersMe operation middleware
+func (siw *ServerInterfaceWrapper) GetUsersMe(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUsersMe(w, r)
 	})
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -252,6 +270,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/searchDish", wrapper.PostSearchDish)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/users/me", wrapper.GetUsersMe)
+	})
 
 	return r
 }
@@ -347,6 +368,24 @@ func (t PostSearchDish500JSONResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal((BasicError)(t))
 }
 
+type GetUsersMeRequestObject struct {
+}
+
+type GetUsersMe200JSONResponse GetUsersMeResp
+
+func (t GetUsersMe200JSONResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal((GetUsersMeResp)(t))
+}
+
+type GetUsersMe401Response struct {
+}
+
+type GetUsersMe500JSONResponse BasicError
+
+func (t GetUsersMe500JSONResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal((BasicError)(t))
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -361,6 +400,9 @@ type StrictServerInterface interface {
 
 	// (POST /searchDish)
 	PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) interface{}
+
+	// (GET /users/me)
+	GetUsersMe(ctx context.Context, request GetUsersMeRequestObject) interface{}
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, args interface{}) interface{}
@@ -549,6 +591,38 @@ func (sh *strictHandler) PostSearchDish(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// GetUsersMe operation middleware
+func (sh *strictHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
+	var request GetUsersMeRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) interface{} {
+		return sh.ssi.GetUsersMe(ctx, request.(GetUsersMeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUsersMe")
+	}
+
+	response := handler(r.Context(), w, r, request)
+
+	switch v := response.(type) {
+	case GetUsersMe200JSONResponse:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		writeJSON(w, v)
+	case GetUsersMe401Response:
+		w.WriteHeader(401)
+	case GetUsersMe500JSONResponse:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(500)
+		writeJSON(w, v)
+	case error:
+		sh.options.ResponseErrorHandlerFunc(w, r, v)
+	case nil:
+	default:
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("Unexpected response type: %T", v))
+	}
+}
+
 func writeJSON(w http.ResponseWriter, v interface{}) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		fmt.Fprintln(w, err)
@@ -564,28 +638,29 @@ func writeRaw(w http.ResponseWriter, b []byte) {
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/+RYQY/bNhP9KwN+36EFBNubbIrAt01cpEabZLGbnoI90NLYYiKRCjmyoS7034shZUle",
-	"0c0WTZoWPW0iiZzHmTdvHn0vUlNWRqMmJ5b3wqU5ltL/84V0Kv3RWmP5f5U1FVpS6N8dckn8l5oKxVI4",
-	"skrvRNsmxydm8wFTEm0iXiFdFcVKuRzdDbrKaIe8NEOXWlWRMlosxZW1soGDohxkUcBHbQ4aMuVyWK+c",
-	"SIQiLN10GX+xXolEbI0tGZJQmn64FD0OpQl3aMWATHKkDhijYkzTjVdIUhWYwegxmC1ID0okD/Ih97sb",
-	"SZyD6cn2aOUOwfr3sDUWKFfO7zODt6UiwgzUFihHiyAtgjawN4QOGqThKLouN+EkWpaRFL6RJTJEyvEI",
-	"8kF5EmHStLYWdYovTa0pgrbk534bVaIboEK3NIvmNhzu7fZXh3a66U3k6EekFj/V6Pz72qF9mBH/EHLp",
-	"QBviHGLGWZmJRKCuS7F8f5E8SZ4ml8mzu/PAQo2yTDEgWVyf1G66KIbePazcz9g4KFHqrrIJ7GVR48kz",
-	"FxhNuSSQfWYdSetmsN5CaSzyWw2/oT0WnRlQWXSoCXpewVZhkUFqNEmlnU+NPGHWTESaz2KKmt72VY+0",
-	"0GvjCMJ3MNDDjZk0g9dql5MvQYfAvzvkpkDIlSNjm/NNGnoTmqZpZmU5y7Jxv2aSMMbUh93q0O4xu4pQ",
-	"9heTSt+eB99AA8OUg7Bqur9PzadaMZ+X70NDTbsjlr+BUiNMd5HU30jCoC+fIh0RWA8Uiu65dUZabK8r",
-	"jyD8g3N1a2PwblHaNH8MwMKYj3XVwVuvYNP0xIAucaeI+c2bqERxON7S+eB86ljpz5d6LHHFXy97D/Qz",
-	"pRznKjYsXo67ssvSSNt4isQq2w2vyXbr1fGMIU/delZERXCQLEW1zgapNDw6Dsrh4wbh+fqM89vHZugt",
-	"b1zrjHMwXfbO1njUa4+0xzjE3xhToNR/VIMhwrQIvEzprYkE58JfXa/ZN5iD8wPDMcl4WIDUGewVHjw2",
-	"kjxo0HlxM7WFDRZmjxmUqF3gt+9wUlRw8PW7W/juJ1Phti6K5nt4Jx01wDOOA4pE7NG6gGIxu5gt/ISt",
-	"UMtKiaV4OlvMnnLRJeW+3vMQYH4fCt/ysx1GaP4KCTJvQBwU6iP204RPM9bo04mqdFrUGQ+L4+B0wDaq",
-	"UwGPzfqeWWchSnBlq6OJqqSVJRJaJ5bv74ViLIxeHC3H4LeGEpKtMel8Ix/lswRs73h5MII+L08WC/7D",
-	"kwWDJ5FVVajQ3vMPjnNyP4rwf4tbsRT/mw/Wdd751vnY1HnSnLF1zCXGyQIiN6amwTa1ibj8gohGNjoC",
-	"6IXMYK2rmiCTJEPsiykjPOc0YuaCIu+UDt9envPEfliHHmwT8exvO9BaE1otC0D+AjY1gfLn85qgNIZF",
-	"lXEUNYo49q+nhL027lsy1mv5C5M1XyyTY4vQngojY2zjfXKasts6TdG5b8Xa1X+ItW0i5rvRbfasft8g",
-	"1bazA+uVnzanl1o/ZSZqPL4pi6+rkdMbeSQp4Rix+/ifLPg/sI6ut3T+x42oGt32LrUzv2x9j1eFiTIN",
-	"JlF8HbU4deyP14svHjw+Wk+E6N/LjeP9o5so06tmAdT9XhG+E4mobSGWIieqlvM530uK3DhaPl88X8zZ",
-	"hl1dr+f7C9Hetb8HAAD///N+q0tvEwAA",
+	"H4sIAAAAAAAC/+RYUW/bRhL+K4O9e7gDCElOnEOgNyc6pEKbxLDTvgR+WJEjcRNyl9kZSlAN/fdidimJ",
+	"MleNiyZNgz7JJrncb2a++eZb3qvc1Y2zaJnU9F5RXmKtw58vNJn8/947L/813jXo2WC4tyk1yy9vG1RT",
+	"ReyNXandLttfcYsPmLPaZeoV8lVVzQyVSDdIjbOEsrRAyr1p2DirpurKe72FjeESdFXBR+s2FgpDJcxn",
+	"pDJlGGsaLpMn5jOVqaXztUBSxvL/LtUBh7GMK/TqiEzLTh0wQSWYhi+eIWtTYQG9y+CWoAMolT3Ih16v",
+	"bjRLDoaRrdHrFYIP92HpPHBpKLxnBG9rw4wFmCVwiR5BewTrYO0YCbbIx1BsWy9iJFbXiRS+0TUKRC5x",
+	"D/JBeTLl8rz1Hm2OL11rOYG2luvhNaZGOkKFbmmRzG0M7u3yZ0I/fOlNIvQ9Uo+fWqRwvyX0DzMSLkKp",
+	"CaxjySEWkpWRyhTatlbT9xfZk+xpdpk9uzsPLNaoKIwA0tX1Se2Gi1Lo6WHlfsQtQY3adpXNYK2rFk+u",
+	"UWQ0l5pBHzJLrD2NYL6E2nmUuxZ+Rb8vujCg8UhoGQ68gqXBqoDcWdbGUkiNPmHWSCWaz2OOlt8eqp5o",
+	"odeOGOJzcKQH9Zk0gtdmVXIoQYcg3NuUrkIoDbHz2/NNGnsTttvtdlTXo6Lo92uhGVNMfdithH6NxVWC",
+	"sj+5XIf23IQGOjLMEMRVw/eH1HxqjfB5+j421LA7Uvk7UqqH6S6te9IN9BrTCjO3MQeCXC9cy6l2GAgN",
+	"1tpUaeXtBxQfS8G60YxR9j4lGjXuDhy5GCh/RvH8Qe4e0YcP0HVrU/BuUfu8fAzAyrmPbdPBm89gsT3w",
+	"Fbp6niKWO2+SyinbySspbC5Rpxh5noF95a3+PBsPQD/DsH6uUgx72ReLLks9jslwS1W2m6lDws72McY8",
+	"detFqA3DRotCtrY4KriTibYxhI+bz+fr08/vYW+BvpMXt7aQHAyXvfMt7sdIQHrAeNx/4VyF2v5eDY47",
+	"DIsgy4xdusTmUvir67nYGbeh0M0kJJMZBtoWsDa4CdhYS8MjBc11rYcFVm6NBdRoKfI7CA8brmTz+btb",
+	"+M8PrsFlW1Xb/8I7TbwFERvZUGVqjZ4iisnoYjQJg79BqxujpurpaDJ6KkXXXIZ6j+MG4/tY+J1cW2GC",
+	"5q+QoQi+iKAyH/Ew5CSa/ug4HfTG5lVbiKLt5zmBuLtOBQI2H3pmXsRdolmc7b1do72ukdGTmr6/V0aw",
+	"CHq1d0JHG3gsIfsWs87OSiifJeDuTpZHfxry8mQykR8ZeBitkm6aysT2Hn8gycl9b4d/e1yqqfrX+Oio",
+	"x52dHve9ZiDNGbdpkkOh6Lh++QUR9dx9AtALXcDcNi1DoVnHvS+GjAics4gFRUVeGRufvTxn1YOHiD24",
+	"y9SzvyyguWX0VleA8gQsWgYT4guaYCzGRY0jTvpX7NvqU8JeO/qWjA1a/sIV2y+Wyb5F2J0Ko2Dcpfvk",
+	"NGW3bZ4j0bdi7ewfxNpdpsar3iH7rH7fILe+swPzWZg2p2ftMGUGatw/wKuvq5HDDwWJpMQwUp8J/mDB",
+	"/4Z1pIOlC99ckmp0e3CpnfkV67s/wQyU6WgS1ddRi1PH/ni9+OKbp0friRB919wIzmkc/fFZf5Y2EOEj",
+	"SuGiBzO0PwEk2707tH7lTu8fjRNJ+UVXpgBCEh87gq7lJbguqnA4/s5ruj9Tdi5h+FWjAu6+BcTnVKZa",
+	"X6mpKpmb6XgsZ82qdMTT55Pnk0CQq+v5eH2hdne73wIAAP//MYBEKtoVAAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

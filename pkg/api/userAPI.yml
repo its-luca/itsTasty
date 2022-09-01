@@ -101,10 +101,36 @@ components:
         type: integer
         format: int64
         description: dishID
+    GetUsersMeResp:
+      description: Information about the requesting user
+      type: object
+      properties:
+        email:
+          type: string
+      required:
+        - email
 
 
 
 paths:
+  /users/me:
+    get:
+      description: Get information about the user doing this requests
+      responses:
+        200:
+          description: Valid session. Return info about user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUsersMeResp'
+        '500':
+          description: Internal error but input was fine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '401':
+          description: User needs to login
   /getAllDishes:
     get:
       description: Returns the IDs of all known dishes

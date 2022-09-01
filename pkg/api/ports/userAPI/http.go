@@ -36,6 +36,16 @@ type HttpServer struct {
 	repo domain.DishRepo
 }
 
+func (h HttpServer) GetUsersMe(ctx context.Context, _ GetUsersMeRequestObject) interface{} {
+	userEmail, err := GetUserEmailFromCTX(ctx)
+	if err != nil {
+		log.Printf("GetUserEmailFromCTX : %v", err)
+		return GetUsersMe500JSONResponse{}
+	}
+
+	return GetUsersMe200JSONResponse{Email: userEmail}
+}
+
 func NewHttpServer() *HttpServer {
 	return &HttpServer{}
 }
