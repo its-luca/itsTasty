@@ -225,14 +225,13 @@ func (app *application) setupRouter() (chi.Router, error) {
 	log.Printf("Configuring router...")
 	router := chi.NewRouter()
 
+	router.Use(app.session.LoadAndSave)
 	router.Handle("/callback", http.HandlerFunc(app.authenticator.CallbackHandler))
 	router.Handle("/login", http.HandlerFunc(app.authenticator.LoginHandler))
 	router.Handle("/logout", http.HandlerFunc(app.authenticator.LogoutHandler))
-
 	//Builder User API for dishes
 
 	userAPiRouter := chi.NewRouter()
-	userAPiRouter.Use(app.session.LoadAndSave)
 	userAPiRouter.Use(app.authenticator.CheckSession)
 	//only allow authenticated and setup context as api expects is
 	userAPiRouter.Use(func(next http.Handler) http.Handler {
