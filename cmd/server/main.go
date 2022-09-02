@@ -38,6 +38,9 @@ const (
 
 	envURLAfterLogin  = "URL_AFTER_LOGIN"
 	envURLAfterLogout = "URL_AFTER_LOGOUT"
+
+	envVarDevMode = "DEV_MODE"
+	envVarDevCORS = "DEV_CORS"
 )
 
 type config struct {
@@ -68,6 +71,11 @@ type config struct {
 	//HTTP Config
 
 	listen string
+
+	//Config for local development
+
+	devMode string
+	devCORS string
 }
 
 type application struct {
@@ -152,6 +160,18 @@ func parseConfig() (*config, error) {
 		cfg.urlAfterLogout = urlAfterLogout
 	}
 
+	if devMode := os.Getenv(envVarDevMode); devMode != "" {
+		allowedDevModes := map[string]bool{"simCookies": true, "mockLogin": true}
+		if _, ok := allowedDevModes[devMode]; !ok {
+			return nil, fmt.Errorf("allowed dev modes are : %v", allowedDevModes)
+		}
+		cfg.devMode = devMode
+	}
+
+	if devCORS := os.Getenv(envVarDevCORS); devCORS != "" {
+		cfg.devCORS = devCORS
+	}
+
 	cfg.listen = ":80"
 
 	return &cfg, nil
@@ -164,16 +184,28 @@ func newApplication(cfg *config) (*application, error) {
 	log.Printf("Building session storage...")
 	session := scs.New()
 	session.Lifetime = 1 * time.Hour
-	session.Cookie.Secure = true
+
+	if cfg.devMode != "" {
+		session.Cookie.Secure = true
+	}
 
 	//Build oidc authenticator
-
 	log.Printf("Building auth backend...")
 	authStorageAdapter := NewAuthSessionStorageManager(session)
-	authenticator, err := oidcAuth.NewDefaultAuthenticator(cfg.oidcProviderURL, cfg.oidcID, cfg.oidcSecret,
-		cfg.oidcCallbackURL, cfg.urlAfterLogin, cfg.urlAfterLogout, authStorageAdapter)
-	if err != nil {
-		return nil, fmt.Errorf("oidcAuth.NewDefaultAuthenticator : %v", err)
+
+	var authenticator oidcAuth.Authenticator
+	if cfg.devMode != "" {
+		alwaysInjectUser := cfg.devMode == "simCookies"
+		log.Printf("DEV MODE: configuring auth middleware to always inject user in sessions, allowing to call api from different contexts")
+		authenticator = oidcAuth.NewMockAuthenticator(alwaysInjectUser, cfg.urlAfterLogin, cfg.urlAfterLogout, authStorageAdapter)
+		log.Printf("WARNING: Using MockAuthenticator for DEV MODE")
+	} else {
+		var err error
+		authenticator, err = oidcAuth.NewDefaultAuthenticator(cfg.oidcProviderURL, cfg.oidcID, cfg.oidcSecret,
+			cfg.oidcCallbackURL, cfg.urlAfterLogin, cfg.urlAfterLogout, authStorageAdapter)
+		if err != nil {
+			return nil, fmt.Errorf("oidcAuth.NewDefaultAuthenticator : %v", err)
+		}
 	}
 
 	//Connect to db
@@ -241,6 +273,16 @@ func connectToDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.
 func (app *application) setupRouter() (chi.Router, error) {
 	log.Printf("Configuring router...")
 	router := chi.NewRouter()
+
+	if app.conf.devMode != "" && app.conf.devCORS != "" {
+		log.Printf("DEV MODE: Allowing CORS from %v", app.conf.devCORS)
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Access-Control-Allow-Origin", app.conf.devCORS)
+				next.ServeHTTP(w, r)
+			})
+		})
+	}
 
 	router.Use(app.session.LoadAndSave)
 	router.Handle("/authAPI/callback", http.HandlerFunc(app.authenticator.CallbackHandler))

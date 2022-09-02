@@ -10,10 +10,6 @@ import (
 )
 
 type Authenticator interface {
-	Exchange(ctx context.Context, code string) (*oauth2.Token, error)
-	Verify(ctx context.Context, rawIDToken string) (*oidc.IDToken, error)
-	GetLoginURL(state string) string
-	Refresh(ctx context.Context, refreshToken string) (*oauth2.Token, error)
 	CheckSession(next http.Handler) http.Handler
 	CallbackHandler(w http.ResponseWriter, r *http.Request)
 	LoginHandler(w http.ResponseWriter, r *http.Request)
