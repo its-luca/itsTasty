@@ -13,8 +13,12 @@ services:
       - DB_NAME
       - DB_USER
       - DB_PW
+      - URL_AFTER_LOGIN
+      - URL_AFTER_LOGOUT
     ports:
       - "8080:80"
+    volumes:
+      - ./frontend/its-tasty/build:/frontend:ro
 
 
   its-tasty-db:

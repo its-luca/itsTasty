@@ -35,6 +35,9 @@ const (
 	envOIDCID          = "OIDC_ID"
 
 	envBotAPIToken = "BOT_API_TOKEN"
+
+	envURLAfterLogin  = "URL_AFTER_LOGIN"
+	envURLAfterLogout = "URL_AFTER_LOGOUT"
 )
 
 type config struct {
@@ -51,6 +54,8 @@ type config struct {
 	oidcCallbackURL string
 	oidcProviderURL string
 	oidcID          string
+	urlAfterLogin   string
+	urlAfterLogout  string
 
 	//Bot Auth Config
 
@@ -135,6 +140,18 @@ func parseConfig() (*config, error) {
 		cfg.botAPIToken = botApiToken
 	}
 
+	if urlAfterLogin := os.Getenv(envURLAfterLogin); urlAfterLogin == "" {
+		return nil, setEnvErr(envURLAfterLogin)
+	} else {
+		cfg.urlAfterLogin = urlAfterLogin
+	}
+
+	if urlAfterLogout := os.Getenv(envURLAfterLogout); urlAfterLogout == "" {
+		return nil, setEnvErr(envURLAfterLogout)
+	} else {
+		cfg.urlAfterLogout = urlAfterLogout
+	}
+
 	cfg.listen = ":80"
 
 	return &cfg, nil
@@ -154,7 +171,7 @@ func newApplication(cfg *config) (*application, error) {
 	log.Printf("Building auth backend...")
 	authStorageAdapter := NewAuthSessionStorageManager(session)
 	authenticator, err := oidcAuth.NewDefaultAuthenticator(cfg.oidcProviderURL, cfg.oidcID, cfg.oidcSecret,
-		cfg.oidcCallbackURL, "/whoami", "/", authStorageAdapter)
+		cfg.oidcCallbackURL, cfg.urlAfterLogin, cfg.urlAfterLogout, authStorageAdapter)
 	if err != nil {
 		return nil, fmt.Errorf("oidcAuth.NewDefaultAuthenticator : %v", err)
 	}
@@ -226,9 +243,9 @@ func (app *application) setupRouter() (chi.Router, error) {
 	router := chi.NewRouter()
 
 	router.Use(app.session.LoadAndSave)
-	router.Handle("/callback", http.HandlerFunc(app.authenticator.CallbackHandler))
-	router.Handle("/login", http.HandlerFunc(app.authenticator.LoginHandler))
-	router.Handle("/logout", http.HandlerFunc(app.authenticator.LogoutHandler))
+	router.Handle("/authAPI/callback", http.HandlerFunc(app.authenticator.CallbackHandler))
+	router.Handle("/authAPI/login", http.HandlerFunc(app.authenticator.LoginHandler))
+	router.Handle("/authAPI/logout", http.HandlerFunc(app.authenticator.LogoutHandler))
 	//Builder User API for dishes
 
 	userAPiRouter := chi.NewRouter()
@@ -281,6 +298,25 @@ func (app *application) setupRouter() (chi.Router, error) {
 	botAPIHandlers := botAPI.NewStrictHandler(botAPIServer, nil)
 	botAPI.HandlerFromMux(botAPIHandlers, botAPIRouter)
 	router.Mount("/botAPI/v1", botAPIRouter)
+
+	//serve react frontend
+	frontendRouter := chi.NewRouter()
+	frontendRouter.Use(func(handler http.Handler) http.Handler {
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			log.Printf("frontendRouter used for request to %v", request.URL.String())
+			handler.ServeHTTP(writer, request)
+		})
+	})
+
+	fsHandler := http.FileServer(http.Dir("/frontend"))
+	frontendRouter.Handle("/", fsHandler)
+	frontendRouter.Handle("/static/*", fsHandler)
+	//see https://stackoverflow.com/questions/53876700/trying-to-serve-react-spa-that-uses-react-router
+	frontendRouter.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("not found hack for %v", r.URL.String())
+		http.ServeFile(w, r, "/frontend/index.html")
+	})
+	router.Mount("/", frontendRouter)
 
 	return router, nil
 }
