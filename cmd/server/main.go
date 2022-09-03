@@ -314,7 +314,7 @@ func (app *application) setupRouter() (chi.Router, error) {
 		})
 	})
 
-	userAPIServer := userAPI.NewHttpServer()
+	userAPIServer := userAPI.NewHttpServer(app.dishRepo)
 	userAPIHandlers := userAPI.NewStrictHandler(userAPIServer, nil)
 	userAPI.HandlerFromMux(userAPIHandlers, userAPiRouter)
 	router.Mount("/userAPI/v1", userAPiRouter)

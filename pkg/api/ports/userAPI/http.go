@@ -46,8 +46,8 @@ func (h HttpServer) GetUsersMe(ctx context.Context, _ GetUsersMeRequestObject) i
 	return GetUsersMe200JSONResponse{Email: userEmail}
 }
 
-func NewHttpServer() *HttpServer {
-	return &HttpServer{}
+func NewHttpServer(repo domain.DishRepo) *HttpServer {
+	return &HttpServer{repo: repo}
 }
 
 func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishIDRequestObject) interface{} {
