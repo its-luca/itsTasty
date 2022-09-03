@@ -186,8 +186,9 @@ func newApplication(cfg *config) (*application, error) {
 	session.Lifetime = 1 * time.Hour
 
 	if cfg.devMode == "" {
-		log.Printf("DEV MODE: disabling secure cookies")
 		session.Cookie.Secure = true
+	} else {
+		log.Printf("DEV MODE: disabling secure cookies")
 	}
 
 	//Build oidc authenticator
