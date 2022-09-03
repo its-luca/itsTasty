@@ -36,7 +36,7 @@ type HttpServer struct {
 	repo domain.DishRepo
 }
 
-func (h HttpServer) GetUsersMe(ctx context.Context, _ GetUsersMeRequestObject) interface{} {
+func (h *HttpServer) GetUsersMe(ctx context.Context, _ GetUsersMeRequestObject) interface{} {
 	userEmail, err := GetUserEmailFromCTX(ctx)
 	if err != nil {
 		log.Printf("GetUserEmailFromCTX : %v", err)
@@ -50,7 +50,7 @@ func NewHttpServer(repo domain.DishRepo) *HttpServer {
 	return &HttpServer{repo: repo}
 }
 
-func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishIDRequestObject) interface{} {
+func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishIDRequestObject) interface{} {
 	userEmail, err := GetUserEmailFromCTX(ctx)
 	if err != nil {
 		log.Printf("GetUserEmailFromCTX : %v", err)
@@ -153,7 +153,7 @@ func (h HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishID
 
 }
 
-func (h HttpServer) PostDishesDishID(ctx context.Context, request PostDishesDishIDRequestObject) interface{} {
+func (h *HttpServer) PostDishesDishID(ctx context.Context, request PostDishesDishIDRequestObject) interface{} {
 
 	userEmail, err := GetUserEmailFromCTX(ctx)
 	if err != nil {
@@ -187,7 +187,7 @@ func (h HttpServer) PostDishesDishID(ctx context.Context, request PostDishesDish
 
 }
 
-func (h HttpServer) GetGetAllDishes(ctx context.Context, _ GetGetAllDishesRequestObject) interface{} {
+func (h *HttpServer) GetGetAllDishes(ctx context.Context, _ GetGetAllDishesRequestObject) interface{} {
 
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
@@ -200,7 +200,7 @@ func (h HttpServer) GetGetAllDishes(ctx context.Context, _ GetGetAllDishesReques
 	return GetGetAllDishes200JSONResponse(dishIDs)
 }
 
-func (h HttpServer) PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) interface{} {
+func (h *HttpServer) PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) interface{} {
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 	_, dishID, err := h.repo.GetDishByName(dbCtx, request.Body.DishName, request.Body.ServedAt)
