@@ -58,7 +58,7 @@ function App() {
                             <Navbar.Text>User: {userEmail !== undefined ? userEmail: "error"} </Navbar.Text>
                         </div>
                         <div className={"d-flex col align-items-center"}>
-                            {isAuthenticated() && <Nav.Link as={Link} to={"/authAPI/logout"}>Logout</Nav.Link>}
+                            {isAuthenticated() && <Nav.Link  href={"/authAPI/logout"}>Logout</Nav.Link>}
                         </div>
                     </div>
 
