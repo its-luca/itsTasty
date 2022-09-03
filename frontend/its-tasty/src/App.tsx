@@ -58,7 +58,11 @@ function App() {
                             <Navbar.Text>User: {userEmail !== undefined ? userEmail: "error"} </Navbar.Text>
                         </div>
                         <div className={"d-flex col align-items-center"}>
-                            {isAuthenticated() && <Nav.Link  href={"/authAPI/logout"}>Logout</Nav.Link>}
+                            {isAuthenticated() &&
+                                <Nav.Link  href={"/authAPI/logout"}
+                                           onClick={ () => { localStorage.setItem("isAuthenticated",String(false))}}>
+                                    Logout
+                                </Nav.Link>}
                         </div>
                     </div>
 

@@ -25,9 +25,9 @@ root.render(
           />
           <Routes>
               <Route path={"/login"} element={<LoginPage/>}/>
-              <Route path={"/"} element={<App />}>
-                  <Route path={"/welcome"} element={<WelcomePage/>}/>
                   <Route element={<PrivateRoutes/>}>
+                      <Route path={"/"} element={<App />}>
+                      <Route path={"/welcome"} element={<WelcomePage/>}/>
                       <Route path={"/dish/:id"} element={<RateDishByID/>}/>
                   </Route>
               </Route>
