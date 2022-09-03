@@ -4,7 +4,7 @@ import {DishVIew} from "../DishView";
 export function RateDishByID() {
     let {id} = useParams();
 
-    if( id == undefined ) {
+    if( id === undefined ) {
         return <div>
             Invalid dish id
         </div>

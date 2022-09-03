@@ -19,7 +19,7 @@ export function DishVIew(props : DishViewProps) {
     const [state,setState] = useState<State>(State.loading)
     const [errorMessage,setErrorMessage] = useState("")
     const authContext = useAuthContext()
-    if( authContext == undefined ) {
+    if( authContext === undefined ) {
        console.log("authContext undefined")
         setState(State.error)
         setErrorMessage("Internal Error")
@@ -133,14 +133,14 @@ export function DishVIew(props : DishViewProps) {
         fetchDish()
     },[])
 
-    if( state == State.loading ) {
+    if( state === State.loading ) {
         return(
             <Container >
                 <p>Loading...</p>
             </Container>
         )
     }
-    if( state == State.error || dishData == undefined) {
+    if( state === State.error || dishData === undefined) {
         return (
             <Container>
                 <p>
@@ -159,7 +159,7 @@ export function DishVIew(props : DishViewProps) {
 
     //occurrenceString contains up to the two most recent occurrences or is set to "never"
     let occurrenceString : string;
-    if( dishData.recentOccurrences.length == 0 ) {
+    if( dishData.recentOccurrences.length === 0 ) {
         occurrenceString = "never"
     } else if (dishData.recentOccurrences.length === 1 ) {
         occurrenceString = dishData.recentOccurrences[0];

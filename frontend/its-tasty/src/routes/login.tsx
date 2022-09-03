@@ -1,13 +1,6 @@
 import { Button} from "react-bootstrap";
 
 export  function LoginPage() {
-    /*
-
-
-         <div className={"d-flex vw-100 vh-100 justify-content-center align-items-center"}>
-            <p>Hellot there</p>
-        </div>
-     */
     return (
         <div className={"d-flex vw-100 vh-100 justify-content-center align-items-center"}>
                 <div className={"col-5 text-center"}>
