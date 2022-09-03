@@ -185,7 +185,8 @@ func newApplication(cfg *config) (*application, error) {
 	session := scs.New()
 	session.Lifetime = 1 * time.Hour
 
-	if cfg.devMode != "" {
+	if cfg.devMode == "" {
+		log.Printf("DEV MODE: disabling secure cookies")
 		session.Cookie.Secure = true
 	}
 
