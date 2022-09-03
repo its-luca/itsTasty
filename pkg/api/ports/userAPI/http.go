@@ -66,6 +66,7 @@ func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishI
 	var dish *domain.Dish
 	var dishRatings *domain.DishRatings
 	dishNotFound := false
+	dishRatingsNotFound := false
 
 	//Get Rating Of User for Dish
 	dbErrGroup.Go(func() error {
@@ -86,6 +87,10 @@ func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishI
 		var err error
 		dishRatings, err = h.repo.GetAllRatingsForDish(dbErrGroupCtx, request.DishID)
 		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				dishRatingsNotFound = true
+				return nil
+			}
 			return fmt.Errorf("GetAllRatingsForDish : %v", err)
 		}
 		return nil
@@ -110,6 +115,11 @@ func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishI
 		log.Printf("Job in errgroup failed : %v", err)
 		if dishNotFound {
 			return GetDishesDishID404Response{}
+		}
+		//N.B. that the dish was found
+		if dishRatingsNotFound {
+			log.Printf("Did not find dish ratings allthough dish exists")
+			return GetDishesDishID500JSONResponse{}
 		}
 		return GetDishesDishID500JSONResponse{}
 	}
