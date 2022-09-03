@@ -19,7 +19,7 @@ export type OpenAPIConfig = {
 };
 
 export const OpenAPI: OpenAPIConfig = {
-    BASE: 'http://localhost:8080/userAPI/v1',
+    BASE: 'https://docker.its.uni-luebeck.de/its-tasty/userAPI/v1',
     VERSION: '0.1.0',
     WITH_CREDENTIALS: false,
     CREDENTIALS: 'include',

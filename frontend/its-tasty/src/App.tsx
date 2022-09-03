@@ -59,7 +59,7 @@ function App() {
                         </div>
                         <div className={"d-flex col align-items-center"}>
                             {isAuthenticated() &&
-                                <Nav.Link  href={"/authAPI/logout"}
+                                <Nav.Link  href={`${process.env.PUBLIC_URL}/authAPI/logout`}
                                            onClick={ () => { localStorage.setItem("isAuthenticated",String(false))}}>
                                     Logout
                                 </Nav.Link>}
