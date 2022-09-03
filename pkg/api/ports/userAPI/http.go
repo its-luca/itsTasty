@@ -150,7 +150,14 @@ func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishI
 		RecentOccurrences: recentOccurrences,
 	}
 
-	if avgRating, err := dishRatings.AverageRating(); err != nil {
+	avgRating, err := dishRatings.AverageRating()
+	if err != nil {
+		if !errors.Is(err, domain.ErrNoVotes) {
+			log.Printf("dishRatings.AverageRating : %v", err)
+			return GetDishesDishID500JSONResponse{}
+		}
+		//ErrNoVotes is fine, we simply don't add the average rating to the result
+	} else {
 		response.AvgRating = &avgRating
 	}
 

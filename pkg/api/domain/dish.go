@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -66,6 +67,8 @@ func NewDishRatings(dish Dish, ratings []DishRating) DishRatings {
 	}
 }
 
+var ErrNoVotes = errors.New("no votes yet")
+
 // AverageRating returns the average rating or an error if no ratings exist yet
 func (d *DishRatings) AverageRating() (float32, error) {
 	ratingSum := float64(0)
@@ -75,7 +78,7 @@ func (d *DishRatings) AverageRating() (float32, error) {
 		totalCount += 1
 	}
 	if totalCount == 0 {
-		return 0, fmt.Errorf("no votes yet")
+		return 0, ErrNoVotes
 	}
 	return float32(ratingSum / totalCount), nil
 }
