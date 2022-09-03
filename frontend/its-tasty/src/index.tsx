@@ -4,10 +4,11 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import {BrowserRouter, Route, Routes} from "react-router-dom";
-import {DummyPublic,DummyPrivate} from "./routes/dummyRoutes";
 import {PrivateRoutes} from "./PrivateRoutes"
 import {LoginPage} from "./routes/login";
 import {RateDishByID} from "./routes/rateDishByID";
+import 'bootstrap/dist/css/bootstrap.min.css';
+import {WelcomePage} from "./routes/welcome";
 
 
 const root = ReactDOM.createRoot(
@@ -25,11 +26,10 @@ root.render(
           <Routes>
               <Route path={"/login"} element={<LoginPage/>}/>
               <Route path={"/"} element={<App />}>
-
-              <Route element={<PrivateRoutes/>}>
+                  <Route path={"/welcome"} element={<WelcomePage/>}/>
+                  <Route element={<PrivateRoutes/>}>
                       <Route path={"/dish/:id"} element={<RateDishByID/>}/>
                   </Route>
-                  <Route path="public" element={<DummyPublic />} />
               </Route>
           </Routes>
       </BrowserRouter>

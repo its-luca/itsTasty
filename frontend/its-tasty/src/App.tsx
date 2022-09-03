@@ -2,7 +2,7 @@ import React, {useEffect, useState} from 'react';
 import './App.css';
 import {Outlet, Link,} from "react-router-dom";
 import {ApiError, DefaultService} from "./services/userAPI";
-import {Col, Container, Nav, Navbar} from "react-bootstrap";
+import { Nav, Navbar} from "react-bootstrap";
 import {AuthContext} from "./AuthContext";
 
 
@@ -11,7 +11,6 @@ function App() {
 
     const [userEmail,setUserEmail] = useState<string|undefined>(undefined);
 
-    const [tryLogin,setTryLogin] = useState(true)
     const [authData,setAuthData] = useState(localStorage.getItem("isAuthenticated"))
     const setAuthStatus = (isAuthenticated : boolean) => {
         localStorage.setItem("isAuthenticated",String(isAuthenticated))
@@ -50,16 +49,21 @@ function App() {
 
     return (
     <AuthContext.Provider value={defaultAuthContextValue}>
-        <div>
+        <div id={"App.tsx main container"}>
             <Navbar bg={"light"} expand={"lg"}>
-                <Navbar.Brand as={Link} to={"/"} >ITS (hopefully) Tasty</Navbar.Brand>
+                <Navbar.Brand as={Link} to={"/welcome"} >ITS (hopefully) Tasty</Navbar.Brand>
+                <div className=" d-flex w-100 h-100 justify-content-end" >
+                    <div className={"row"}>
+                        <div className={"col"}>
+                            <Navbar.Text>User: {userEmail !== undefined ? userEmail: "error"} </Navbar.Text>
+                        </div>
+                        <div className={"d-flex col align-items-center"}>
+                            {isAuthenticated() && <Nav.Link as={Link} to={"/authAPI/logout"}>Logout</Nav.Link>}
+                        </div>
+                    </div>
 
-                <Container className="justify-content-end" >
-                        <Navbar.Text>Signed in as  {userEmail !== undefined ? userEmail: "error"} </Navbar.Text>
-                        {isAuthenticated() && <Nav.Link as={Link} to={"/authAPI/logout"}>Logout</Nav.Link>}
-                </Container>
+                </div>
             </Navbar>
-
             <Outlet />
         </div>
     </AuthContext.Provider>

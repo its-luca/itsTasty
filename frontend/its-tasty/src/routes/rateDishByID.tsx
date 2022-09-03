@@ -1,18 +1,24 @@
 import {useParams} from "react-router-dom";
-import {Container} from "react-bootstrap";
+import {DishVIew} from "../DishView";
 
 export function RateDishByID() {
     let {id} = useParams();
 
     if( id == undefined ) {
-        return <Container>
+        return <div>
             Invalid dish id
-        </Container>
+        </div>
+    }
+    const idAsNumber = parseInt(id)
+    if( isNaN(idAsNumber) ) {
+        return <div>
+            Invalid dish id
+        </div>
     }
 
     return (
-        <Container>
-            Voting site for dish id {id}
-        </Container>
+        <div>
+            <DishVIew dishID={idAsNumber} />
+        </div>
     )
 }
