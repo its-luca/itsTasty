@@ -141,6 +141,12 @@ func (s *Service) GetDishesDishID(ctx context.Context, request GetDishesDishIDRe
 		OccurrenceCount:   len(dish.Occurrences()),
 		Ratings:           ratings,
 		RecentOccurrences: recentOccurrences,
+		ServedAt:          dish.ServedAt,
 	}
+
+	if avgRating, err := dishRatings.AverageRating(); err == nil {
+		response.AvgRating = &avgRating
+	}
+
 	return response
 }
