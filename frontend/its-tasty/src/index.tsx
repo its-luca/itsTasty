@@ -16,7 +16,7 @@ const root = ReactDOM.createRoot(
 );
 root.render(
   <React.StrictMode>
-      <BrowserRouter>
+      <BrowserRouter basename={new URL(process.env.PUBLIC_URL).pathname}>
           <link
               rel="stylesheet"
               href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/css/bootstrap.min.css"

@@ -29,3 +29,5 @@ export const OpenAPI: OpenAPIConfig = {
     HEADERS: undefined,
     ENCODE_PATH: undefined,
 };
+// @ts-ignore
+OpenAPI.BASE = process.env.REACT_APP_USER_API_BASE_URL
