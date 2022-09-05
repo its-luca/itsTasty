@@ -4,6 +4,7 @@ import {Outlet, Link,} from "react-router-dom";
 import {ApiError, DefaultService} from "./services/userAPI";
 import { Nav, Navbar} from "react-bootstrap";
 import {AuthContext} from "./AuthContext";
+import {lsKeyIsAuthenticated} from "./localStorageKeys";
 
 
 
@@ -11,9 +12,9 @@ function App() {
 
     const [userEmail,setUserEmail] = useState<string|undefined>(undefined);
 
-    const [authData,setAuthData] = useState(localStorage.getItem("isAuthenticated"))
+    const [authData,setAuthData] = useState(localStorage.getItem(lsKeyIsAuthenticated))
     const setAuthStatus = (isAuthenticated : boolean) => {
-        localStorage.setItem("isAuthenticated",String(isAuthenticated))
+        localStorage.setItem(lsKeyIsAuthenticated,String(isAuthenticated))
         setAuthData(String(isAuthenticated))
         console.log(`Set isAuthenticated to ${String(isAuthenticated)}`)
     }
@@ -59,8 +60,8 @@ function App() {
                         </div>
                         <div className={"d-flex col align-items-center"}>
                             {isAuthenticated() &&
-                                <Nav.Link  href={"/authAPI/logout"}
-                                           onClick={ () => { localStorage.setItem("isAuthenticated",String(false))}}>
+                                <Nav.Link  href={`${process.env.PUBLIC_URL}/authAPI/logout`}
+                                           onClick={ () => { localStorage.setItem(lsKeyIsAuthenticated,String(false))}}>
                                     Logout
                                 </Nav.Link>}
                         </div>
