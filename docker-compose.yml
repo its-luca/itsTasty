@@ -18,9 +18,10 @@ services:
       - DEV_MODE
       - DEV_CORS
     ports:
-      - "8080:80"
+      - "8000:80"
     volumes:
       - ./frontend/its-tasty/build:/frontend:ro
+      - ./testdata/selfSignedTLS:/selfSignedTLS:ro
 
 
   its-tasty-db:

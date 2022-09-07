@@ -11,32 +11,30 @@ type MockAuthenticator struct {
 	urlAfterLogin  string
 	urlAfterLogout string
 
-	injectUserOnEachRequest bool
-	profile                 UserProfile
+	profile UserProfile
 }
 
-// NewMockAuthenticator returns and authenticator that simulates the login always loggin in a fixed user
-func NewMockAuthenticator(injectUserOnEachRequest bool, urlAfterLogin, urlAfterLogout string,
+// NewMockAuthenticator returns and authenticator that creates cookie on login, checks existence in CheckSession
+// and destroys cookie in logout. Cookie is always for a fixed user
+func NewMockAuthenticator(urlAfterLogin, urlAfterLogout string,
 	storage SessionStorage) *MockAuthenticator {
 	return &MockAuthenticator{
-		session:                 storage,
-		urlAfterLogin:           urlAfterLogin,
-		urlAfterLogout:          urlAfterLogout,
-		injectUserOnEachRequest: injectUserOnEachRequest,
-		profile:                 UserProfile{Email: "testUser@some.domain"},
+		session:        storage,
+		urlAfterLogin:  urlAfterLogin,
+		urlAfterLogout: urlAfterLogout,
+		profile:        UserProfile{Email: "testUser@some.domain"},
 	}
 }
 
 func (m MockAuthenticator) CheckSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Mock CheckSession called")
-		if m.injectUserOnEachRequest {
-			log.Printf("CheckSession injecting user")
-			if err := m.session.StoreProfile(r.Context(), SessionKeyProfile, m.profile); err != nil {
-				http.Error(w, "", http.StatusInternalServerError)
-				log.Printf("failed to store %v to session : %v", SessionKeyProfile, err)
-				return
-			}
+
+		_, err := m.session.GetProfile(r.Context(), SessionKeyProfile)
+		if err != nil {
+			http.Error(w, "", http.StatusUnauthorized)
+			log.Printf("CheckSession: unathorized access")
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -57,7 +55,12 @@ func (m *MockAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.Reque
 }
 
 func (m MockAuthenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Mock callback handler jumping to CallBackHandler")
+	log.Printf("Mock LoginHandler called,creating session")
+	if err := m.session.StoreProfile(r.Context(), SessionKeyProfile, m.profile); err != nil {
+		http.Error(w, "", http.StatusInternalServerError)
+		log.Printf("failed to store %v to session : %v", SessionKeyProfile, err)
+		return
+	}
 	m.CallbackHandler(w, r)
 
 }
