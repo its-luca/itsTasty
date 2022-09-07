@@ -14,7 +14,7 @@ export  function LoginPage() {
                         </p>
                     </div>
                     <div className={"row"}>
-                        <Button variant={"primary"} href={`${process.env.PUBLIC_URL}/authAPI/login`} >Login</Button>
+                        <Button variant={"primary"} href={`${process.env.REACT_APP_AUTH_API_BASE_URL}/authAPI/login`} >Login</Button>
                     </div>
                 </div>
 

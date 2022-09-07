@@ -60,7 +60,7 @@ function App() {
                         </div>
                         <div className={"d-flex col align-items-center"}>
                             {isAuthenticated() &&
-                                <Nav.Link  href={`${process.env.PUBLIC_URL}/authAPI/logout`}
+                                <Nav.Link  href={`${process.env.REACT_APP_AUTH_API_BASE_URL}/authAPI/logout`}
                                            onClick={ () => { localStorage.setItem(lsKeyIsAuthenticated,String(false))}}>
                                     Logout
                                 </Nav.Link>}

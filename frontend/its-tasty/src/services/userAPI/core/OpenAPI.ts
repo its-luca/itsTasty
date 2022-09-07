@@ -31,3 +31,5 @@ export const OpenAPI: OpenAPIConfig = {
 };
 // @ts-ignore
 OpenAPI.BASE = process.env.REACT_APP_USER_API_BASE_URL
+// @ts-ignore
+OpenAPI.WITH_CREDENTIALS = process.env.NODE_ENV === "development"
