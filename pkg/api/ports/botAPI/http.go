@@ -26,14 +26,14 @@ func NewService(repo domain.DishRepo) *Service {
 	}
 }
 
-func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreateOrUpdateDishRequestObject) interface{} {
+func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreateOrUpdateDishRequestObject) (PostCreateOrUpdateDishResponseObject, error) {
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 
 	_, createdDish, createdLocation, dishID, err := s.repo.GetOrCreateDish(dbCtx, request.Body.DishName, request.Body.ServedAt)
 	if err != nil {
 		log.Printf("GetOrCreateDish for dishName %v : %v", request.Body.DishName, err)
-		return PostCreateOrUpdateDish500JSONResponse{}
+		return PostCreateOrUpdateDish500JSONResponse{}, nil
 	}
 	dbCancel()
 
@@ -53,7 +53,7 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 	})
 	if err != nil {
 		log.Printf("UPdateDish for dishID %v : %v", dishID, err)
-		return PostCreateOrUpdateDish500JSONResponse{}
+		return PostCreateOrUpdateDish500JSONResponse{}, nil
 	}
 
 	//
@@ -64,11 +64,11 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 		CreatedNewDish:     createdDish,
 		CreatedNewLocation: createdLocation,
 		DishID:             dishID,
-	}
+	}, nil
 
 }
 
-func (s *Service) GetDishesDishID(ctx context.Context, request GetDishesDishIDRequestObject) interface{} {
+func (s *Service) GetDishesDishID(ctx context.Context, request GetDishesDishIDRequestObject) (GetDishesDishIDResponseObject, error) {
 
 	//
 	// Query data
@@ -110,9 +110,9 @@ func (s *Service) GetDishesDishID(ctx context.Context, request GetDishesDishIDRe
 	if err != nil {
 		log.Printf("Job in errgroup failed : %v", err)
 		if dishNotFound {
-			return GetDishesDishID404Response{}
+			return GetDishesDishID404Response{}, nil
 		}
-		return GetDishesDishID500JSONResponse{}
+		return GetDishesDishID500JSONResponse{}, nil
 	}
 
 	//
@@ -148,5 +148,5 @@ func (s *Service) GetDishesDishID(ctx context.Context, request GetDishesDishIDRe
 		response.AvgRating = &avgRating
 	}
 
-	return response
+	return response, nil
 }
