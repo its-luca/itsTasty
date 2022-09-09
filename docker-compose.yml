@@ -20,7 +20,7 @@ services:
     ports:
       - "8000:80"
     volumes:
-      - ./frontend/its-tasty/build:/frontend:ro
+      #data is only picked up in dev mode
       - ./testdata/selfSignedTLS:/selfSignedTLS:ro
 
 

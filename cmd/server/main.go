@@ -14,12 +14,11 @@ import (
 	"itsTasty/pkg/api/ports/botAPI"
 	"itsTasty/pkg/api/ports/userAPI"
 	"itsTasty/pkg/oidcAuth"
-	"strings"
-
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -99,6 +98,11 @@ func parseConfig() (*config, error) {
 
 	cfg := config{}
 
+	cfg.devMode = "true" == strings.ToLower(os.Getenv(envVarDevMode))
+	if cfg.devMode {
+		log.Printf("DEV MODE: ENABLED")
+	}
+
 	if dbURL := os.Getenv(envVarDBURL); dbURL == "" {
 		return nil, setEnvErr(envVarDBURL)
 	} else {
@@ -123,25 +127,25 @@ func parseConfig() (*config, error) {
 		cfg.dbPW = dbPW
 	}
 
-	if oidcSecret := os.Getenv(envOIDCSecret); oidcSecret == "" {
+	if oidcSecret := os.Getenv(envOIDCSecret); oidcSecret == "" && !cfg.devMode {
 		return nil, setEnvErr(envOIDCSecret)
 	} else {
 		cfg.oidcSecret = oidcSecret
 	}
 
-	if oidcCallbackURL := os.Getenv(envOIDCCallbackURL); oidcCallbackURL == "" {
+	if oidcCallbackURL := os.Getenv(envOIDCCallbackURL); oidcCallbackURL == "" && !cfg.devMode {
 		return nil, setEnvErr(envOIDCCallbackURL)
 	} else {
 		cfg.oidcCallbackURL = oidcCallbackURL
 	}
 
-	if oidcProviderURL := os.Getenv(envOIDCProviderURL); oidcProviderURL == "" {
+	if oidcProviderURL := os.Getenv(envOIDCProviderURL); oidcProviderURL == "" && !cfg.devMode {
 		return nil, setEnvErr(envOIDCProviderURL)
 	} else {
 		cfg.oidcProviderURL = oidcProviderURL
 	}
 
-	if oidcID := os.Getenv(envOIDCID); oidcID == "" {
+	if oidcID := os.Getenv(envOIDCID); oidcID == "" && !cfg.devMode {
 		return nil, setEnvErr(envOIDCID)
 	} else {
 		cfg.oidcID = oidcID
@@ -164,8 +168,6 @@ func parseConfig() (*config, error) {
 	} else {
 		cfg.urlAfterLogout = urlAfterLogout
 	}
-
-	cfg.devMode = "true" == strings.ToLower(envVarDevMode)
 
 	if devCORS := os.Getenv(envVarDevCORS); devCORS != "" {
 		cfg.devCORS = devCORS
