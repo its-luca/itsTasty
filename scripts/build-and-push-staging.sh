@@ -22,5 +22,5 @@ sudo docker buildx build \
   --build-arg  REACT_APP_AUTH_API_BASE_URL="$REACT_APP_AUTH_API_BASE_URL" \
   --build-arg  REACT_APP_PUBLIC_URL="$REACT_APP_PUBLIC_URL" \
   --build-arg  PUBLIC_URL="$PUBLIC_URL" \
-  -f cmd/server/Dockerfile --push -t "ghcr.io/its-luca/itstasty/its-tasty:$TAG" .
+  -f cmd/server/Dockerfile --push -t "ghcr.io/its-luca/itstasty:$TAG" .
 
