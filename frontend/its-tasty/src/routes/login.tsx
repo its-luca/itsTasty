@@ -1,19 +1,21 @@
 import { Button} from "react-bootstrap";
 import {useLocation} from "react-router-dom";
 import {LocationState} from "../PrivateRoutes";
+import urlJoin from 'url-join';
 
 export  function LoginPage() {
     const location =  useLocation()
 
     //Check if we should redirect to a specific location
-    let loginURL = new URL("/authAPI/login",process.env.REACT_APP_AUTH_API_BASE_URL);
+    let loginURL =  new URL(urlJoin(process.env.REACT_APP_AUTH_API_BASE_URL!,'/login',));
     if( location.state ) {
         const {from} = location.state as LocationState
         if( from.pathname && from.pathname != "" && from.pathname != "/") {
-            const redirectURL = new URL(from.pathname,process.env.REACT_APP_PUBLIC_URL)
-            loginURL = new URL(`/authAPI/login?redirectTo=${redirectURL.href}`,process.env.REACT_APP_AUTH_API_BASE_URL);
+            const redirectURL =   urlJoin(process.env.REACT_APP_PUBLIC_URL!,from.pathname)
+            loginURL = new URL(urlJoin(process.env.REACT_APP_AUTH_API_BASE_URL!,'login',`?redirectTo=${redirectURL}`))
         }
     }
+    console.log('requested redirect: ' + loginURL)
 
     return (
         <div className={"d-flex vw-100 vh-100 justify-content-center align-items-center"}>
