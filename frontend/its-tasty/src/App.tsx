@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import './App.css';
-import {Outlet, Link,} from "react-router-dom";
+import {Outlet, Link, Navigate,} from "react-router-dom";
 import {ApiError, DefaultService} from "./services/userAPI";
 import { Nav, Navbar} from "react-bootstrap";
 import {AuthContext} from "./AuthContext";
@@ -47,6 +47,12 @@ function App() {
         }
         fetchCurrentUser()
     },[authData]);
+
+    if( !isAuthenticated() ) {
+        return (
+            <Navigate to={"/login"}/>
+        )
+    }
 
     return (
     <AuthContext.Provider value={defaultAuthContextValue}>
