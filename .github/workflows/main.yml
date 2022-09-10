@@ -29,4 +29,4 @@ jobs:
             REACT_APP_PUBLIC_URL=https://localhost
             REACT_APP_USER_API_BASE_URL=https://localhost/userAPI/v1
 
-          tags: ciTest
+          tags: ci-test
