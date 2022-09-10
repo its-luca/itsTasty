@@ -1,11 +1,17 @@
 import React, {useEffect, useState} from 'react'
-import {Outlet,Navigate} from 'react-router-dom'
+import {Outlet, Navigate, useLocation} from 'react-router-dom'
 import {ApiError, DefaultService} from "./services/userAPI";
 import {lsKeyIsAuthenticated} from "./localStorageKeys";
 
+export interface LocationState {
+    from: {
+        pathname: string;
+    };
+}
 
 export  function PrivateRoutes() {
 
+    const targetLocation = useLocation();
     const [authData,setAuthData] = useState(localStorage.getItem(lsKeyIsAuthenticated))
     const [verifiedAuthStatus,setVerifiedAuthStatus] = useState(authData === String(true))
     useEffect( () => {
@@ -36,8 +42,14 @@ export  function PrivateRoutes() {
         return <p>Checking authentication...</p>
     }
 
+    if( authData !== String(true) ) {
+        //place original target in Navigate state allowing us to redirect there after user has logged in
+        const locState : LocationState = {from: targetLocation}
+        return <Navigate to={"/login"} replace={true} state={locState}/>
+    }
+
     return (
-        (authData === String(true)) ? <Outlet/> : <Navigate to={"/login"}/>
-    );
+      <Outlet/>
+    )
 
 }

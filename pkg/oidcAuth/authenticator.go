@@ -2,10 +2,12 @@ package oidcAuth
 
 import (
 	"context"
+	"fmt"
 	"github.com/coreos/go-oidc"
 	"golang.org/x/oauth2"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -21,6 +23,7 @@ const sessionKeyAccessToken = "oidcAuthAccessToken"
 const sessionKeyExpiry = "oidcAuthExpiry"
 const sessionKeyRefreshToken = "oidcAuthRefreshToken"
 const SessionKeyProfile = "oidcAuthProfile"
+const sessionKeyRedirectTarget = "oidcRedirectAfterLogin"
 
 type SessionStorage interface {
 	StoreString(ctx context.Context, key, value string) error
@@ -44,11 +47,13 @@ type DefaultAuthenticator struct {
 	ProviderURL string
 	session     SessionStorage
 
-	urlAfterLogin  string
-	urlAfterLogout string
+	defaultURLAfterLogin string
+	urlAfterLogout       string
+
+	callbackURL url.URL
 }
 
-func NewDefaultAuthenticator(providerURL, clientID, clientSecret, callbackURL, urlAfterLogin, urlAfterLogout string,
+func NewDefaultAuthenticator(providerURL, clientID, clientSecret, callbackURL, defaultURLAfterLogin, urlAfterLogout string,
 	storage SessionStorage) (*DefaultAuthenticator, error) {
 	ctx := context.Background()
 
@@ -66,14 +71,20 @@ func NewDefaultAuthenticator(providerURL, clientID, clientSecret, callbackURL, u
 		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 	}
 
+	cbURL, err := url.Parse(callbackURL)
+	if err != nil {
+		return nil, fmt.Errorf("callbackURL param does not contain valid URL : %v", err)
+	}
+
 	return &DefaultAuthenticator{
-		Provider:       provider,
-		Config:         conf,
-		Ctx:            ctx,
-		ProviderURL:    providerURL,
-		session:        storage,
-		urlAfterLogin:  urlAfterLogin,
-		urlAfterLogout: urlAfterLogout,
+		Provider:             provider,
+		Config:               conf,
+		Ctx:                  ctx,
+		ProviderURL:          providerURL,
+		session:              storage,
+		defaultURLAfterLogin: defaultURLAfterLogin,
+		urlAfterLogout:       urlAfterLogout,
+		callbackURL:          *cbURL,
 	}, nil
 }
 
