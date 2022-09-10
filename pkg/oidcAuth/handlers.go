@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
+	"net/url"
 )
 
-// CallbackHandler handles the oidc callback, establishing a session, and finally redirects da.urlAfterLogin
+// CallbackHandler handles the oidc callback, establishing a session, and finally redirects back to the calling application
+// The redirect location is expected to be placed into the session key `sessionKeyRedirectTarget` by the login handler
 func (da *DefaultAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("CallbackHandler was called")
 
@@ -110,7 +112,15 @@ func (da *DefaultAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	http.Redirect(w, r, da.urlAfterLogin, http.StatusSeeOther)
+	//fetch redirect target that was requested during login. we verified that it is within our page
+	redirectTo, err := da.session.GetString(r.Context(), sessionKeyRedirectTarget)
+	if err != nil {
+		http.Error(w, "", http.StatusInternalServerError)
+		log.Printf("failed to retrieve redirect target from session : %v", err)
+		return
+	}
+
+	http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 }
 
 // LoginHandler initiates the oidc login workflow which will trigger the call to CallbackHandler
@@ -126,9 +136,36 @@ func (da *DefaultAuthenticator) LoginHandler(w http.ResponseWriter, r *http.Requ
 	}
 	state := base64.StdEncoding.EncodeToString(b)
 
+	// Store random state in session, so that we can retrieve it in the callback handler to check if it is equal
+	//to the provided state
 	if err := da.session.StoreString(r.Context(), sessionKeyState, state); err != nil {
 		http.Error(w, "", http.StatusInternalServerError)
 		log.Printf("Failed to save %v in session : %v", sessionKeyState, err)
+		return
+	}
+
+	// Check if the user requested a specific page to be redirected to after login
+	redirectAfterLogin := da.callbackURL
+
+	if target := r.URL.Query().Get("redirectTo"); target != "" {
+		u, err := url.Parse(target)
+		if err != nil {
+			http.Error(w, "Invalid redirectTo URL", http.StatusBadRequest)
+			log.Printf("Failed to parse redirectTo URL : %v", err)
+			return
+		}
+		if u.Hostname() != da.callbackURL.Hostname() {
+			http.Error(w, "Invalid redirectTo URL", http.StatusBadRequest)
+			log.Printf("redirectTo was set to \"%v\" which is outside of our page", u.String())
+			return
+		}
+		redirectAfterLogin = *u
+	}
+
+	//Store redirect after login location in session, to be able to a access it in the redirect handler
+	if err := da.session.StoreString(r.Context(), sessionKeyRedirectTarget, redirectAfterLogin.String()); err != nil {
+		http.Error(w, "", http.StatusInternalServerError)
+		log.Printf("Failed to save value %v for key %v in session : %v", redirectAfterLogin, sessionKeyRedirectTarget, err)
 		return
 	}
 

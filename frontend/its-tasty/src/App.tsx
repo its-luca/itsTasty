@@ -1,15 +1,17 @@
 import React, {useEffect, useState} from 'react';
 import './App.css';
-import {Outlet, Link, Navigate,} from "react-router-dom";
+import {Outlet, Link, Navigate, useLocation,} from "react-router-dom";
 import {ApiError, DefaultService} from "./services/userAPI";
 import { Nav, Navbar} from "react-bootstrap";
 import {AuthContext} from "./AuthContext";
 import {lsKeyIsAuthenticated} from "./localStorageKeys";
+import {LocationState} from "./PrivateRoutes";
 
 
 
 function App() {
 
+    const location = useLocation();
     const [userEmail,setUserEmail] = useState<string|undefined>(undefined);
 
     const [authData,setAuthData] = useState(localStorage.getItem(lsKeyIsAuthenticated))
@@ -49,8 +51,10 @@ function App() {
     },[authData]);
 
     if( !isAuthenticated() ) {
+        const locState : LocationState = {from: location}
         return (
-            <Navigate to={"/login"}/>
+            //place original target in Navigate state allowing us to redirect there after user has logged in
+            <Navigate to={"/login"} replace={true} state={locState}/>
         )
     }
 

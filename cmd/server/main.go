@@ -36,6 +36,7 @@ const (
 
 	envBotAPIToken = "BOT_API_TOKEN"
 
+	//envURLAfterLogin sets the default url after login if no login target is given to the authenticator
 	envURLAfterLogin  = "URL_AFTER_LOGIN"
 	envURLAfterLogout = "URL_AFTER_LOGOUT"
 
