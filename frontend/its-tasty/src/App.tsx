@@ -6,6 +6,7 @@ import { Nav, Navbar} from "react-bootstrap";
 import {AuthContext} from "./AuthContext";
 import {lsKeyIsAuthenticated} from "./localStorageKeys";
 import {LocationState} from "./PrivateRoutes";
+import urlJoin from "url-join";
 
 
 
@@ -70,7 +71,7 @@ function App() {
                         </div>
                         <div className={"d-flex col align-items-center"}>
                             {isAuthenticated() &&
-                                <Nav.Link  href={`${process.env.REACT_APP_AUTH_API_BASE_URL}/authAPI/logout`}
+                                <Nav.Link  href={ new URL(urlJoin(process.env.REACT_APP_AUTH_API_BASE_URL!,'/logout')).href}
                                            onClick={ () => { localStorage.setItem(lsKeyIsAuthenticated,String(false))}}>
                                     Logout
                                 </Nav.Link>}
