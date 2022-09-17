@@ -64,6 +64,11 @@ function App() {
         <div id={"App.tsx main container"}>
             <Navbar bg={"light"} expand={"lg"}>
                 <Navbar.Brand as={Link} to={"/welcome"} >ITS (hopefully) Tasty</Navbar.Brand>
+                <Nav>
+                    <Nav.Link as={Link} to={'/dishesByDate'}>
+                        Today's Menu
+                    </Nav.Link>
+                </Nav>
                 <div className=" d-flex w-100 h-100 justify-content-end" >
                     <div className={"row"}>
                         <div className={"col"}>

@@ -9,6 +9,7 @@ import {LoginPage} from "./routes/login";
 import {RateDishByID} from "./routes/rateDishByID";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import {WelcomePage} from "./routes/welcome";
+import {ViewDishesAtDate} from "./routes/viewDishesAtDate";
 
 
 const root = ReactDOM.createRoot(
@@ -29,6 +30,7 @@ root.render(
                       <Route path={"/"} element={<App />}>
                       <Route path={"/welcome"} element={<WelcomePage/>}/>
                       <Route path={"/dish/:id"} element={<RateDishByID/>}/>
+                      <Route path={"dishesByDate"} element={<ViewDishesAtDate/>}/>
                   </Route>
               </Route>
           </Routes>

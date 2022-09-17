@@ -11,6 +11,7 @@ export type { GetAllDishesResponse } from './models/GetAllDishesResponse';
 export { GetDishResp } from './models/GetDishResp';
 export type { GetUsersMeResp } from './models/GetUsersMeResp';
 export { RateDishReq } from './models/RateDishReq';
+export type { SearchDishByDateReq } from './models/SearchDishByDateReq';
 export type { SearchDishReq } from './models/SearchDishReq';
 export type { SearchDishResp } from './models/SearchDishResp';
 
