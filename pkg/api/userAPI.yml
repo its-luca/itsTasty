@@ -115,7 +115,7 @@ components:
       type: object
       properties:
         date:
-          description: Date on which dishes must have been served. Format yyyy.mm.dd
+          description: Date on which dishes must have been served. Format YYYY-MM-DD
           type: string
           format: date
         location:
