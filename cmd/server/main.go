@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 	"itsTasty/pkg/api/adapters/dishRepo"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports/botAPI"
@@ -278,13 +279,13 @@ func (app *application) setupRouter() (chi.Router, error) {
 
 	if app.conf.devCORS != "" {
 		log.Printf("DEV MODE: Allowing CORS + Credentials from %v", app.conf.devCORS)
-		router.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Access-Control-Allow-Origin", app.conf.devCORS)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				next.ServeHTTP(w, r)
-			})
-		})
+		router.Use(cors.Handler(cors.Options{
+			AllowedOrigins:   []string{app.conf.devCORS},
+			AllowedMethods:   []string{http.MethodOptions, http.MethodGet, http.MethodPost, http.MethodHead},
+			AllowedHeaders:   []string{"Content-Type"},
+			AllowCredentials: true,
+			Debug:            true,
+		}))
 	}
 
 	router.Use(app.session.LoadAndSave)
