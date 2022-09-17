@@ -20,7 +20,7 @@ export type OpenAPIConfig = {
 
 export const OpenAPI: OpenAPIConfig = {
     BASE: 'http://localhost:8080/userAPI/v1',
-    VERSION: '0.1.0',
+    VERSION: '0.2.0',
     WITH_CREDENTIALS: false,
     CREDENTIALS: 'include',
     TOKEN: undefined,
@@ -32,4 +32,4 @@ export const OpenAPI: OpenAPIConfig = {
 // @ts-ignore
 OpenAPI.BASE = process.env.REACT_APP_USER_API_BASE_URL
 // @ts-ignore
-OpenAPI.WITH_CREDENTIALS = process.env.NODE_ENV === "development"
+OpenAPI.WITH_CREDENTIALS = process.env.NODE_ENV === "development" ? true : false
