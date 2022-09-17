@@ -565,6 +565,64 @@ func (m *MysqlRepo) GetDishByID(ctx context.Context, dishID int64) (*domain.Dish
 	return dish, nil
 }
 
+func (m *MysqlRepo) GetDishByDate(ctx context.Context, when time.Time, optionalLocation *string) ([]int64, error) {
+
+	//
+	// Get dish matchingDishIDs matching query
+	//
+
+	rawStmt := `select dishes.id from dishes
+    join dish_occurrences as do on dishes.id = do.dish_id
+    join locations as loc on dishes.location_id = loc.id
+    where date(do.date) = date(?)`
+
+	if optionalLocation != nil {
+		rawStmt += ` AND loc.name = ?`
+	}
+
+	stmt, err := m.db.PrepareContext(ctx, rawStmt)
+	if err != nil {
+		return nil, fmt.Errorf("PrepareContext for \"%v\" : %v", rawStmt, err)
+	}
+	defer func(stmt *sql.Stmt) {
+		err := stmt.Close()
+		if err != nil {
+			log.Printf("Failed to clase stmt : %v", err)
+		}
+	}(stmt)
+
+	var res *sql.Rows
+	if optionalLocation == nil {
+		res, err = stmt.QueryContext(ctx, when)
+	} else {
+		res, err = stmt.QueryContext(ctx, when, *optionalLocation)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("QueryContext for \"%v\" : %w", rawStmt, err)
+	}
+	defer func(res *sql.Rows) {
+		err := res.Close()
+		if err != nil {
+			log.Printf("Failed to close rows : %v", err)
+		}
+	}(res)
+
+	matchingDishIDs := make([]int64, 0)
+
+	for res.Next() {
+		var id int64
+		if err := res.Scan(&id); err != nil {
+			return nil, fmt.Errorf("parsing result : %w", err)
+		}
+		matchingDishIDs = append(matchingDishIDs, id)
+	}
+	if err := res.Err(); err != nil {
+		return nil, fmt.Errorf("res.Err : %w", err)
+	}
+
+	return matchingDishIDs, nil
+}
+
 func (m *MysqlRepo) UpdateMostRecentServing(ctx context.Context, dishID int64,
 	updateFN func(currenMostRecent *time.Time) (*time.Time, error)) (err error) {
 
