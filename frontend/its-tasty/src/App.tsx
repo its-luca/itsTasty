@@ -1,12 +1,11 @@
 import React, {useEffect, useState} from 'react';
 import './App.css';
-import {Outlet, Link, Navigate, useLocation,} from "react-router-dom";
+import {Outlet, Navigate, useLocation,} from "react-router-dom";
 import {ApiError, DefaultService} from "./services/userAPI";
-import { Nav, Navbar} from "react-bootstrap";
 import {AuthContext} from "./AuthContext";
 import {lsKeyIsAuthenticated} from "./localStorageKeys";
 import {LocationState} from "./PrivateRoutes";
-import urlJoin from "url-join";
+import {ResponsiveAppBar} from "./MyAppBar";
 
 
 
@@ -61,32 +60,8 @@ function App() {
 
     return (
     <AuthContext.Provider value={defaultAuthContextValue}>
-        <div id={"App.tsx main container"}>
-            <Navbar bg={"light"} expand={"lg"}>
-                <Navbar.Brand as={Link} to={"/welcome"} >ITS (hopefully) Tasty</Navbar.Brand>
-                <Nav>
-                    <Nav.Link as={Link} to={'/dishesByDate'}>
-                        Today's Menu
-                    </Nav.Link>
-                </Nav>
-                <div className=" d-flex w-100 h-100 justify-content-end" >
-                    <div className={"row"}>
-                        <div className={"col"}>
-                            <Navbar.Text>User: {userEmail !== undefined ? userEmail: "error"} </Navbar.Text>
-                        </div>
-                        <div className={"d-flex col align-items-center"}>
-                            {isAuthenticated() &&
-                                <Nav.Link  href={ new URL(urlJoin(process.env.REACT_APP_AUTH_API_BASE_URL!,'/logout')).href}
-                                           onClick={ () => { localStorage.setItem(lsKeyIsAuthenticated,String(false))}}>
-                                    Logout
-                                </Nav.Link>}
-                        </div>
-                    </div>
-
-                </div>
-            </Navbar>
-            <Outlet />
-        </div>
+        <ResponsiveAppBar userName={userEmail ? userEmail : "Error"}/>
+        <Outlet />
     </AuthContext.Provider>
 );
 }
