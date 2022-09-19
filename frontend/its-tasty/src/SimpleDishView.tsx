@@ -67,9 +67,9 @@ export function SimpleDishView(props : SimpleDishViewProps) {
         setErrorMessage("Internal Error")
     }
 
-    const fetchDish = async () => {
+    const fetchDish = async (dishID : number) => {
         try {
-            const reply = await DefaultService.getDishes(props.dishID)
+            const reply = await DefaultService.getDishes(dishID)
             setDishData(reply)
             setState(State.success)
         } catch (e) {
@@ -99,9 +99,7 @@ export function SimpleDishView(props : SimpleDishViewProps) {
     }
 
 
-    const updateUserVoting = async (rating :number) => {
-
-
+    const updateUserVoting = async (rating :number, dishID : number) => {
         try {
             await DefaultService.postDishes(props.dishID,{rating:rating})
             setState(State.success)
@@ -131,13 +129,13 @@ export function SimpleDishView(props : SimpleDishViewProps) {
             setState(State.error)
         }
         //trigger reload of dish
-        fetchDish()
+        fetchDish(dishID)
     }
 
     useEffect( () => {
         console.log("useEffect is running")
-        fetchDish()
-    },[])
+        fetchDish(props.dishID)
+    },[props.dishID])
 
     if( state === State.loading ) {
         return(
@@ -210,7 +208,7 @@ export function SimpleDishView(props : SimpleDishViewProps) {
                                 <Rating
                                     max={5}
                                     value={dishData.ratingOfUser === undefined ? null : dishData.ratingOfUser}
-                                    onChange={(_event, value) => value !== null && updateUserVoting(value)}
+                                    onChange={(_event, value) => value !== null && updateUserVoting(value,props.dishID)}
                                 />
                             </TableCell>
                         </TableRow>
