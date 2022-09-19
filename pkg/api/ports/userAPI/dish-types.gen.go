@@ -73,6 +73,15 @@ type RateDishReq struct {
 // RateDishReqRating defines model for RateDishReq.Rating.
 type RateDishReqRating int
 
+// SearchDishByDateReq Request to look up all dishes served on a date optionally filtered by a location
+type SearchDishByDateReq struct {
+	// Date Date on which dishes must have been served. Format yyyy.mm.dd
+	Date openapi_types.Date `json:"date"`
+
+	// Location Location by which dishes must have been served
+	Location *string `json:"location,omitempty"`
+}
+
 // SearchDishReq Request to lookup a dishID by the dish name
 type SearchDishReq struct {
 	// DishName Dish to search for
@@ -99,3 +108,6 @@ type PostDishesDishIDJSONRequestBody = RateDishReq
 
 // PostSearchDishJSONRequestBody defines body for PostSearchDish for application/json ContentType.
 type PostSearchDishJSONRequestBody = SearchDishReq
+
+// PostSearchDishByDateJSONRequestBody defines body for PostSearchDishByDate for application/json ContentType.
+type PostSearchDishByDateJSONRequestBody = SearchDishByDateReq

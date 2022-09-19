@@ -24,6 +24,9 @@ type DishRepo interface {
 	//GetDishByID fetches the dish
 	GetDishByID(ctx context.Context, dishID int64) (dish *Dish, err error)
 
+	//GetDishByDate returns dishIDs for all dishes served at when optionally restricted to those served by the given location
+	GetDishByDate(ctx context.Context, when time.Time, optionalLocation *string) ([]int64, error)
+
 	//UpdateMostRecentServing calls updateFN with the most recent serving for dishID (which may be nil)
 	//and adds a new serving if the function returns a non nil time value
 	UpdateMostRecentServing(ctx context.Context, dishID int64,

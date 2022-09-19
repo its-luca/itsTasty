@@ -36,3 +36,15 @@
     transform: rotate(360deg);
   }
 }
+
+@keyframes fade-in-fade-out {
+  0%,100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+.loadingAnimation {
+  animation: fade-in-fade-out;
+  animation-duration: 3s;
+  animation-iteration-count: infinite;
+}
+

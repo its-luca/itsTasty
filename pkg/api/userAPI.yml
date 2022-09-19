@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 0.1.0
+  version: 0.2.0
   title: ITS (Hopefully) Tasty User API
   description: This API allows users to rate and view the tastiness of our beloved mensa dishes
 servers:
@@ -110,6 +110,19 @@ components:
       required:
         - email
 
+    SearchDishByDateReq:
+      description: Request to look up all dishes served on a date optionally filtered by a location
+      type: object
+      properties:
+        date:
+          description: Date on which dishes must have been served. Format YYYY-MM-DD
+          type: string
+          format: date
+        location:
+          description: Location by which dishes must have been served
+          type: string
+      required:
+        - date
 
 
 paths:
@@ -166,6 +179,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SearchDishResp'
+        '500':
+          description: Internal error but input was fine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        '401':
+          description: User needs to login
+  /searchDish/byDate:
+    post:
+      description: Search for a dish by Date and optional by location
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchDishByDateReq'
+      responses:
+        200:
+          description: Success. Array with matching dish ids (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int64
         '500':
           description: Internal error but input was fine
           content:

@@ -8,7 +8,11 @@ import {PrivateRoutes} from "./PrivateRoutes"
 import {LoginPage} from "./routes/login";
 import {RateDishByID} from "./routes/rateDishByID";
 import 'bootstrap/dist/css/bootstrap.min.css';
-import {WelcomePage} from "./routes/welcome";
+import '@fontsource/roboto/300.css';
+import '@fontsource/roboto/400.css';
+import '@fontsource/roboto/500.css';
+import '@fontsource/roboto/700.css';
+import {ViewDishesAtDateURLAdapter} from "./routes/viewDishesAtDateURLAdapter";
 
 
 const root = ReactDOM.createRoot(
@@ -17,19 +21,16 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
       <BrowserRouter basename={new URL(process.env.REACT_APP_PUBLIC_URL!).pathname}>
-          <link
-              rel="stylesheet"
-              href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/css/bootstrap.min.css"
-              integrity="sha384-0evHe/X+R7YkIZDRvuzKMRqM+OrBnVFBL6DOitfPri4tjfHxaWutUpFmBp4vmVor"
-              crossOrigin="anonymous"
-          />
           <Routes>
               <Route path={"/login"} element={<LoginPage/>}/>
                   <Route element={<PrivateRoutes/>}>
                       <Route path={"/"} element={<App />}>
-                      <Route path={"/welcome"} element={<WelcomePage/>}/>
+                      <Route path={"/welcome"} element={<ViewDishesAtDateURLAdapter/>}/>
                       <Route path={"/dish/:id"} element={<RateDishByID/>}/>
-                  </Route>
+                      <Route path={"dishesByDate/:dateString"} element={<ViewDishesAtDateURLAdapter/>}/>
+                      <Route path={"dishesByDate/"} element={<ViewDishesAtDateURLAdapter/>}/>
+
+                      </Route>
               </Route>
           </Routes>
       </BrowserRouter>

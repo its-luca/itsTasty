@@ -36,6 +36,19 @@ type HttpServer struct {
 	repo domain.DishRepo
 }
 
+func (h *HttpServer) PostSearchDishByDate(ctx context.Context, request PostSearchDishByDateRequestObject) (PostSearchDishByDateResponseObject, error) {
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+
+	matchingDishes, err := h.repo.GetDishByDate(dbCtx, request.Body.Date.Time, request.Body.Location)
+	if err != nil {
+		log.Printf("GetDishByDate for date %v and location %v failed : %v", request.Body.Date.Time, request.Body.Location, err)
+		return PostSearchDishByDate500JSONResponse{}, nil
+	}
+
+	return PostSearchDishByDate200JSONResponse(matchingDishes), nil
+}
+
 func (h *HttpServer) GetUsersMe(ctx context.Context, _ GetUsersMeRequestObject) (GetUsersMeResponseObject, error) {
 	userEmail, err := GetUserEmailFromCTX(ctx)
 	if err != nil {
