@@ -5,11 +5,10 @@ import urlJoin from "url-join";
 
 export function ViewDishesAtDateURLAdapter() {
     let {dateString} = useParams();
-
     if( dateString === undefined ) {
         return <div>
            <Navigate
-               to={new URL(urlJoin(process.env.REACT_APP_PUBLIC_URL!,'dishesByDate', moment().format("DD-MM-YYYY") ))}
+               to={urlJoin('/dishesByDate', moment().format("DD-MM-YYYY") )}
            />
         </div>
     }
