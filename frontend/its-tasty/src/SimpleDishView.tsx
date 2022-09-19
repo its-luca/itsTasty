@@ -181,7 +181,7 @@ export function SimpleDishView(props : SimpleDishViewProps) {
                             <TableCell  align="center" colSpan={2} >
                                 <Typography
                                     component={RRLink}
-                                    to={new URL(urlJoin(process.env.REACT_APP_PUBLIC_URL!,'dish',props.dishID.toString()))}
+                                    to={urlJoin('/dish',props.dishID.toString())}
                                     sx={{fontSize:"large",fontWeight:"bold",textAlign:"center"}} >
                                     {dishData.name}
                                 </Typography>

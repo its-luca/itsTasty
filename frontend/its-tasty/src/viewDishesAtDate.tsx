@@ -149,7 +149,7 @@ export function ViewDishesAtDate(props :ViewDishesAtDateProps) {
     const prevButton = (
         <Button
             component={RRLink}
-            to={new URL(urlJoin(process.env.REACT_APP_PUBLIC_URL!,'dishesByDate', moment(props.date).subtract(1,"day").format("DD-MM-YYYY") ))}
+            to={urlJoin('/dishesByDate', moment(props.date).subtract(1,"day").format("DD-MM-YYYY") )}
             sx={{width: buttonSize}}
             variant={"contained"}
             key={"prevDate"}
@@ -164,7 +164,7 @@ export function ViewDishesAtDate(props :ViewDishesAtDateProps) {
     const nextButton = (
         <Button
             component={RRLink}
-            to={new URL(urlJoin(process.env.REACT_APP_PUBLIC_URL!,'dishesByDate', moment(props.date).add(1,"day").format("DD-MM-YYYY") ))}
+            to={urlJoin('/dishesByDate', moment(props.date).add(1,"day").format("DD-MM-YYYY") )}
             sx={{width: buttonSize}}
             variant={"contained"}
             key={"nextDate"}
@@ -192,7 +192,7 @@ export function ViewDishesAtDate(props :ViewDishesAtDateProps) {
                 {dateDisplay}
                 {nextButton}
             </Container>
-            <Grid2 container sx={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
+            <Grid2 container sx={{mt:"10px",display:"flex",justifyContent:"space-around",alignItems:"start"}}>
                 <Grid2>
                        <DishByDateLocationView date={props.date} location={"UKSH"}/>
                 </Grid2>
