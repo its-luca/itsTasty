@@ -4,7 +4,7 @@ on:
     branches:
       - production
     tags:
-      - v*
+      - release*
 
 jobs:
   call-build-and-check:
