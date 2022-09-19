@@ -35,6 +35,9 @@ type ServerInterface interface {
 	// (POST /searchDish)
 	PostSearchDish(w http.ResponseWriter, r *http.Request)
 
+	// (POST /searchDish/byDate)
+	PostSearchDishByDate(w http.ResponseWriter, r *http.Request)
+
 	// (GET /users/me)
 	GetUsersMe(w http.ResponseWriter, r *http.Request)
 }
@@ -121,6 +124,21 @@ func (siw *ServerInterfaceWrapper) PostSearchDish(w http.ResponseWriter, r *http
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PostSearchDish(w, r)
+	})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// PostSearchDishByDate operation middleware
+func (siw *ServerInterfaceWrapper) PostSearchDishByDate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostSearchDishByDate(w, r)
 	})
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -269,6 +287,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/searchDish", wrapper.PostSearchDish)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/searchDish/byDate", wrapper.PostSearchDishByDate)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/users/me", wrapper.GetUsersMe)
@@ -446,6 +467,40 @@ func (response PostSearchDish500JSONResponse) VisitPostSearchDishResponse(w http
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PostSearchDishByDateRequestObject struct {
+	Body *PostSearchDishByDateJSONRequestBody
+}
+
+type PostSearchDishByDateResponseObject interface {
+	VisitPostSearchDishByDateResponse(w http.ResponseWriter) error
+}
+
+type PostSearchDishByDate200JSONResponse []int64
+
+func (response PostSearchDishByDate200JSONResponse) VisitPostSearchDishByDateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostSearchDishByDate401Response struct {
+}
+
+func (response PostSearchDishByDate401Response) VisitPostSearchDishByDateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type PostSearchDishByDate500JSONResponse BasicError
+
+func (response PostSearchDishByDate500JSONResponse) VisitPostSearchDishByDateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type GetUsersMeRequestObject struct {
 }
 
@@ -493,6 +548,9 @@ type StrictServerInterface interface {
 
 	// (POST /searchDish)
 	PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) (PostSearchDishResponseObject, error)
+
+	// (POST /searchDish/byDate)
+	PostSearchDishByDate(ctx context.Context, request PostSearchDishByDateRequestObject) (PostSearchDishByDateResponseObject, error)
 
 	// (GET /users/me)
 	GetUsersMe(ctx context.Context, request GetUsersMeRequestObject) (GetUsersMeResponseObject, error)
@@ -642,6 +700,37 @@ func (sh *strictHandler) PostSearchDish(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// PostSearchDishByDate operation middleware
+func (sh *strictHandler) PostSearchDishByDate(w http.ResponseWriter, r *http.Request) {
+	var request PostSearchDishByDateRequestObject
+
+	var body PostSearchDishByDateJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PostSearchDishByDate(ctx, request.(PostSearchDishByDateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PostSearchDishByDate")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PostSearchDishByDateResponseObject); ok {
+		if err := validResponse.VisitPostSearchDishByDateResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("Unexpected response type: %T", response))
+	}
+}
+
 // GetUsersMe operation middleware
 func (sh *strictHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 	var request GetUsersMeRequestObject
@@ -669,29 +758,32 @@ func (sh *strictHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
+	"XSymmydid737PQAA//9cvEHM3BkAAA==",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

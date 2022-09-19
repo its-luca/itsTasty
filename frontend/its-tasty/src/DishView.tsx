@@ -1,8 +1,18 @@
-import { Container} from "react-bootstrap";
-import {ApiError, DefaultService, GetDishResp, RateDishReq} from "./services/userAPI";
+import {ApiError, DefaultService, GetDishResp} from "./services/userAPI";
 import {useEffect, useState} from "react";
 import {useAuthContext} from "./AuthContext";
-import {Rating} from 'react-simple-star-rating'
+import {
+    Container,
+    Paper,
+    Table,
+    TableBody, TableCell,
+    TableContainer,
+    TableRow, Rating, SxProps, Theme
+} from "@mui/material";
+import moment from "moment";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+
 
 interface DishViewProps {
     dishID : number
@@ -56,48 +66,12 @@ export function DishVIew(props : DishViewProps) {
         }
     }
 
-    const uiRatingToReqParam = (rating :number) : RateDishReq.rating|undefined => {
-        switch (rating) {
-            case 20:
-                return RateDishReq.rating._1
-            case 40:
-                return RateDishReq.rating._2
-            case 60:
-                return RateDishReq.rating._3
-            case 80:
-                return RateDishReq.rating._4
-            case 100:
-                return RateDishReq.rating._5
-            default:
-                return undefined
-        }
-    }
-
-    const apiRatingToUiRating = ( rating : GetDishResp.ratingOfUser) : number => {
-        switch (rating) {
-            case GetDishResp.ratingOfUser._1:
-                return 20
-            case GetDishResp.ratingOfUser._2:
-                return 40
-            case GetDishResp.ratingOfUser._3:
-                return 60
-            case GetDishResp.ratingOfUser._4:
-                return 80
-            case GetDishResp.ratingOfUser._5:
-                return 100
-        }
-    }
 
     const updateUserVoting = async (rating :number) => {
 
-        const validatedRating = uiRatingToReqParam(rating)
-        if( validatedRating === undefined ) {
-            console.log(`updateUserVoting called with invalid rating ${rating}`)
-            return
-        }
 
         try {
-            await DefaultService.postDishes(props.dishID,{rating:validatedRating})
+            await DefaultService.postDishes(props.dishID,{rating:rating})
             setState(State.success)
         } catch (e) {
             console.log(`updateUserVoting error : ${e}`)
@@ -151,10 +125,13 @@ export function DishVIew(props : DishViewProps) {
     }
 
 
-    let ratings = new Array<string>()
-    for( let rating in dishData.ratings ) {
-        let count = dishData.ratings[rating]
-        ratings.push( rating + " Stars: " + count.toString())
+    let ratings = new Array<number>()
+    for(let rating = 1; rating <=5; rating++) {
+        let count = dishData.ratings[rating.toString()]
+        if (count === undefined) {
+            count = 0;
+        }
+        ratings.push(count)
     }
 
     //occurrenceString contains up to the two most recent occurrences or is set to "never"
@@ -162,55 +139,119 @@ export function DishVIew(props : DishViewProps) {
     if( dishData.recentOccurrences.length === 0 ) {
         occurrenceString = "never"
     } else if (dishData.recentOccurrences.length === 1 ) {
-        occurrenceString = dishData.recentOccurrences[0];
+        //occurrenceString = moment().subtract(moment(dishData.recentOccurrences[0])).humazinze();
+        const now = moment();
+        const occurrence = moment(dishData.recentOccurrences[0]);
+        occurrenceString = moment.duration(occurrence.diff(now)).humanize() + " ago"
     } else { // >= 2
-            occurrenceString = dishData.recentOccurrences[0] + ", " + dishData.recentOccurrences[1];
+        const now = moment();
+        const o1 = moment(dishData.recentOccurrences[0]);
+        const o2 = moment(dishData.recentOccurrences[1])
+        occurrenceString =  moment.duration(o1.diff(now)).humanize() + " ago and "
+            + moment.duration(o2.diff(now)).humanize() + " ago";
     }
 
 
+    const variantLeftColumn = "h6"
+
+    const sxLeftColum : SxProps<Theme> = {
+        fontWeight:"medium",
+    };
+
     return (
-        <div className="d-flex justify-content-center">
-            <div className={"col-lg-4 col-md"}>
-                <div className={"row"}>
-                    <div className={"col"}>Name</div>
-                    <div className={"col"}>{dishData.name}</div>
-                </div>
-                <div className={"row"}>
-                    <div className={"col"}>Served at</div>
-                    <div className={"col"}>{dishData.servedAt}</div>
-                </div>
-                <div className={"row"}>
-                    <div className={"col"}>Occurrence Count</div>
-                    <div className={"col"}>{dishData.occurrenceCount}</div>
-                </div>
-                <div className={"row"}>
-                    <div className={"col"}>Most recent servings</div>
-                    <div className={"col"}>{occurrenceString}</div>
-                </div>
-                <div className={"row"}>
-                    <div className={"col"}>Ratings</div>
-                    <div className={"col"}>
-                        { ratings.length === 0 ? "No Ratings yet" : ratings.join(", ") }
-                    </div>
-                </div>
-                <div className={"row"}>
-                    <div className={"col"}>Average Rating</div>
-                    <div className={"col"}>
-                        {
-                            (dishData.avgRating !== undefined  && dishData.avgRating !== 0)? dishData.avgRating : "No votes yet"
-                        }
-                    </div>
-                </div>
-                <div className={"row"}>
-                    <div className={"col d-flex align-items-center"}>Your Rating</div>
-                    <div className={"col"}>
-                        <Rating
-                            ratingValue={ ( dishData.ratingOfUser === undefined) ? NaN : apiRatingToUiRating(dishData.ratingOfUser)}
-                            onClick={ (value: number) => updateUserVoting(value)}
-                        />
-                    </div>
-                </div>
-            </div>
-        </div>
+        <Container
+            maxWidth="sm"
+            sx={{
+            marginTop:"10px"
+        }}>
+            <TableContainer component={Paper} elevation={10} >
+                <Table>
+                    <TableBody>
+                        <TableRow>
+                            <TableCell  component={Paper}>
+                                <Typography variant={variantLeftColumn}>Name</Typography>
+                            </TableCell>
+                            <TableCell component={Paper}>
+                                <Typography sx={sxLeftColum} >{dishData.name}</Typography>
+                            </TableCell>
+                        </TableRow>
+
+                        <TableRow>
+                            <TableCell component={Paper}>
+                                <Typography variant={variantLeftColumn}>Served at</Typography>
+                            </TableCell>
+                            <TableCell component={Paper}>
+                                <Typography sx={sxLeftColum} >{dishData.servedAt}</Typography>
+                            </TableCell>
+                        </TableRow>
+
+                        <TableRow>
+                            <TableCell sx={{width:"50%"}} component={Paper}>
+                                <Typography variant={variantLeftColumn}>Occurrence Count</Typography>
+                            </TableCell>
+                            <TableCell sx={{width:"50%"}} component={Paper}>
+                                <Typography sx={sxLeftColum} >{dishData.occurrenceCount}</Typography>
+                            </TableCell>
+                        </TableRow>
+
+                        <TableRow>
+                            <TableCell component={Paper}>
+                                <Typography variant={variantLeftColumn}>Recent servings</Typography>
+                            </TableCell>
+                            <TableCell component={Paper}>
+                                <Typography sx={sxLeftColum} >{occurrenceString}</Typography>
+                            </TableCell>
+                        </TableRow>
+
+                        <TableRow>
+                            <TableCell component={Paper}>
+                                <Typography variant={variantLeftColumn}>Average Rating</Typography>
+                            </TableCell>
+                            <TableCell component={Paper}>
+                                <Rating
+                                    max={5}
+                                    precision={0.25}
+                                    value={ (dishData.avgRating !== undefined  && dishData.avgRating !== 0) ? dishData.avgRating : null }
+                                    readOnly={true}
+                                />
+                            </TableCell>
+                        </TableRow>
+
+                        <TableRow>
+                            <TableCell component={Paper}>
+                                <Typography variant={variantLeftColumn}>Your Rating</Typography>
+                            </TableCell>
+                            <TableCell component={Paper}>
+                              <Rating
+                                  max={5}
+                                  value={dishData.ratingOfUser === undefined ? null : dishData.ratingOfUser}
+                                 onChange={(_event, value) => value !== null && updateUserVoting(value)}
+                              />
+                            </TableCell>
+                        </TableRow>
+
+                        <TableRow>
+                            <TableCell component={Paper}>
+                                <Typography variant={variantLeftColumn}>Ratings</Typography>
+                            </TableCell>
+                            <TableCell component={Paper}>
+                            {
+                                ratings.map( (value,index) => (
+                                        <Box sx={{
+                                            display:"flex",
+                                            alignItems:"center",
+                                        }}>
+                                            <Typography sx={sxLeftColum} >{value}</Typography>
+                                            <Rating name="read-only" value={value} max={index+1} readOnly />
+                                        </Box>
+                                ))}
+                            </TableCell>
+                        </TableRow>
+
+                    </TableBody>
+                </Table>
+            </TableContainer>
+        </Container>
+
     )
 }

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/require"
-	"io/ioutil"
+	"io"
 	"itsTasty/pkg/api/domain"
 	"log"
 	"os"
@@ -47,7 +47,7 @@ func getMysqlIntegrationTestDB() (*sql.DB, error) {
 	buildDSN := func(user, pw, url, dbName string) string {
 		return fmt.Sprintf("%v:%v@tcp(%v)/%v?parseTime=true", user, pw, url, dbName)
 	}
-	err := mysql.SetLogger(log.New(ioutil.Discard, "", 0))
+	err := mysql.SetLogger(log.New(io.Discard, "", 0))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set discard logger mysql")
 	}
@@ -80,6 +80,12 @@ func getMysqlIntegrationTestDB() (*sql.DB, error) {
 
 	mysqlIntegrationTestDB = db
 	return db, nil
+}
+
+// roundToMysqlResolution is a helper that rounds down the time precision, as Mysql does not seem to retain nanoseconds.
+// This helps to compare time values in tests
+func roundToMysqlResolution(t time.Time) time.Time {
+	return t.Round(time.Second)
 }
 
 // TestNewDblpRepo simply tests if NewDblpRepo runs without errors, indicating that all the table creation sql code
@@ -336,7 +342,7 @@ func Test_SetOrCreateRating(t *testing.T) {
 	//to make "got want" comparisons work
 
 	//Initial call should create new rating
-	initialDishRating := domain.NewDishRating(sampleUserEmail, domain.FiveStars, time.Now().Round(time.Second))
+	initialDishRating := domain.NewDishRating(sampleUserEmail, domain.FiveStars, roundToMysqlResolution(time.Now()))
 	isNew, err := repo.SetOrCreateRating(context.Background(), sampleUserEmail, sampleDishID, initialDishRating)
 	require.NoError(t, err)
 	require.True(t, isNew)
@@ -347,7 +353,7 @@ func Test_SetOrCreateRating(t *testing.T) {
 	require.Equal(t, initialDishRating, *dishRating)
 
 	//Second call should only change the rating
-	updatedDishRating := domain.NewDishRating(sampleUserEmail, domain.OneStar, time.Now().Add(2*time.Second).Round(time.Second))
+	updatedDishRating := domain.NewDishRating(sampleUserEmail, domain.OneStar, roundToMysqlResolution(time.Now().Add(2*time.Second)))
 	isNew, err = repo.SetOrCreateRating(context.Background(), sampleUserEmail, sampleDishID, updatedDishRating)
 	require.NoError(t, err)
 	require.False(t, isNew)
@@ -391,7 +397,6 @@ func TestMysqlRepo_UpdateMostRecentServing(t *testing.T) {
 
 	//add dish
 	const sampleDishName = "sampleDish"
-	const sampleUserEmail = "test@use.er"
 	_, isNewDish, isNewLocation, sampleDishID, err := repo.GetOrCreateDish(context.Background(), sampleDishName, "someLocation")
 	require.NoError(t, err)
 	require.True(t, isNewDish)
@@ -422,4 +427,74 @@ func TestMysqlRepo_UpdateMostRecentServing(t *testing.T) {
 		return nil, nil
 	})
 	require.NoError(t, err)
+}
+
+func TestMysqlRepo_GetDishByDate(t *testing.T) {
+	//
+	//Build test env
+	//
+	if !inMysqlIntegrationTestEnv() {
+		skipMysqlIntegrationTest(t)
+	}
+	db, err := getMysqlIntegrationTestDB()
+	if err != nil {
+		t.Fatalf("getMysqlIntegrationTestDB : %v", err)
+	}
+
+	repo, err := NewMysqlRepo(db)
+	if err != nil {
+		t.Errorf("NewDblpRepo failed with %v", err)
+	}
+	defer func() {
+		if err := repo.DropRepo(context.Background()); err != nil {
+			t.Errorf("Error cleanup up repo : %v", err)
+		}
+	}()
+
+	locationA := "locationA"
+	locationB := "locationB"
+
+	//add test dishes
+	_, isNewDish, isNewLocation, wantDish1LocationA, err := repo.GetOrCreateDish(context.Background(), "dish1LocationA", locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, wantDish2LocationA, err := repo.GetOrCreateDish(context.Background(), "dish2LocationA", locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, wantDish1LocationB, err := repo.GetOrCreateDish(context.Background(), "dish1LocationB", locationB)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	//
+	// Run Test
+	//
+
+	//Get all dishes without filtering for location
+
+	gotDishIDs, err := repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), nil)
+	require.NoError(t, err)
+	wantDishIDs := []int64{wantDish1LocationA, wantDish2LocationA, wantDish1LocationB}
+	require.ElementsMatch(t, wantDishIDs, gotDishIDs)
+
+	//Get all dishes from locationA
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), &locationA)
+	require.NoError(t, err)
+	wantDishIDs = []int64{wantDish1LocationA, wantDish2LocationA}
+	require.ElementsMatch(t, wantDishIDs, gotDishIDs)
+
+	//search for non-existing location
+	nonExistingLocation := "nonExistingLocation"
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), &nonExistingLocation)
+	require.NoError(t, err)
+	require.Equal(t, 0, len(gotDishIDs))
+
+	//search for non-existing time
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision().Add(24*time.Hour), nil)
+	require.NoError(t, err)
+	require.Equal(t, 0, len(gotDishIDs))
 }

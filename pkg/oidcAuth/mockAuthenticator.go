@@ -34,7 +34,7 @@ func (m MockAuthenticator) CheckSession(next http.Handler) http.Handler {
 		_, err := m.session.GetProfile(r.Context(), SessionKeyProfile)
 		if err != nil {
 			http.Error(w, "", http.StatusUnauthorized)
-			log.Printf("CheckSession: unathorized access")
+			log.Printf("CheckSession: unathorized access to %v with method %v and headers %v", r.URL, r.Method, r.Header)
 			return
 		}
 		next.ServeHTTP(w, r)

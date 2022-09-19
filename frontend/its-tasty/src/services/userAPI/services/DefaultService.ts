@@ -5,6 +5,7 @@ import type { GetAllDishesResponse } from '../models/GetAllDishesResponse';
 import type { GetDishResp } from '../models/GetDishResp';
 import type { GetUsersMeResp } from '../models/GetUsersMeResp';
 import type { RateDishReq } from '../models/RateDishReq';
+import type { SearchDishByDateReq } from '../models/SearchDishByDateReq';
 import type { SearchDishReq } from '../models/SearchDishReq';
 import type { SearchDishResp } from '../models/SearchDishResp';
 
@@ -58,6 +59,27 @@ export class DefaultService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/searchDish',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                401: `User needs to login`,
+                500: `Internal error but input was fine`,
+            },
+        });
+    }
+
+    /**
+     * Search for a dish by Date and optional by location
+     * @param requestBody
+     * @returns number Success. Array with matching dish ids (may be empty)
+     * @throws ApiError
+     */
+    public static postSearchDishByDate(
+        requestBody: SearchDishByDateReq,
+    ): CancelablePromise<Array<number>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/searchDish/byDate',
             body: requestBody,
             mediaType: 'application/json',
             errors: {
