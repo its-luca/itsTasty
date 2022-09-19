@@ -192,7 +192,7 @@ export function ViewDishesAtDate(props :ViewDishesAtDateProps) {
                 {dateDisplay}
                 {nextButton}
             </Container>
-            <Grid2 container sx={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
+            <Grid2 container sx={{mt:"10px",display:"flex",justifyContent:"space-around",alignItems:"start"}}>
                 <Grid2>
                        <DishByDateLocationView date={props.date} location={"UKSH"}/>
                 </Grid2>
