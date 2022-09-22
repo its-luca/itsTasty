@@ -242,7 +242,7 @@ export function DishVIew(props : DishViewProps) {
                                             alignItems:"center",
                                         }}>
                                             <Typography sx={sxLeftColum} >{value}</Typography>
-                                            <Rating name="read-only" value={value} max={index+1} readOnly />
+                                            <Rating name="read-only" value={index+1} max={index+1} readOnly />
                                         </Box>
                                 ))}
                             </TableCell>
