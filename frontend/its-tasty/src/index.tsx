@@ -13,6 +13,7 @@ import '@fontsource/roboto/400.css';
 import '@fontsource/roboto/500.css';
 import '@fontsource/roboto/700.css';
 import {ViewDishesAtDateURLAdapter} from "./routes/viewDishesAtDateURLAdapter";
+import {ThemeSelector} from "./themeSelector";
 
 
 const root = ReactDOM.createRoot(
@@ -21,18 +22,20 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
       <BrowserRouter basename={new URL(process.env.REACT_APP_PUBLIC_URL!).pathname}>
-          <Routes>
-              <Route path={"/login"} element={<LoginPage/>}/>
+          <ThemeSelector>
+              <Routes>
+                  <Route path={"/login"} element={<LoginPage/>}/>
                   <Route element={<PrivateRoutes/>}>
                       <Route path={"/"} element={<App />}>
-                      <Route path={"/welcome"} element={<ViewDishesAtDateURLAdapter/>}/>
-                      <Route path={"/dish/:id"} element={<RateDishByID/>}/>
-                      <Route path={"dishesByDate/:dateString"} element={<ViewDishesAtDateURLAdapter/>}/>
-                      <Route path={"dishesByDate/"} element={<ViewDishesAtDateURLAdapter/>}/>
+                          <Route path={"/welcome"} element={<ViewDishesAtDateURLAdapter/>}/>
+                          <Route path={"/dish/:id"} element={<RateDishByID/>}/>
+                          <Route path={"dishesByDate/:dateString"} element={<ViewDishesAtDateURLAdapter/>}/>
+                          <Route path={"dishesByDate/"} element={<ViewDishesAtDateURLAdapter/>}/>
 
                       </Route>
-              </Route>
-          </Routes>
+                  </Route>
+              </Routes>
+          </ThemeSelector>
       </BrowserRouter>
   </React.StrictMode>
 );
