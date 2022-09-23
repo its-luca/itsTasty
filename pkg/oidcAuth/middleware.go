@@ -22,10 +22,11 @@ func (da *DefaultAuthenticator) CheckSession(next http.Handler) http.Handler {
 		}
 		if accessToken == "" {
 			log.Printf("invalid sessions")
-			if err := da.session.ClearEntry(r.Context(), SessionKeyProfile); err != nil {
-				log.Printf("failed to clear session SessionKeyProfile from session : %v", err)
-				http.Error(w, "", http.StatusInternalServerError)
+			if err := da.session.Destroy(r.Context()); err != nil {
+				fmt.Printf("failed to clear session: %v", err)
 				return
+			} else {
+				fmt.Printf("cleared session")
 			}
 			next.ServeHTTP(w, r)
 			return
@@ -41,36 +42,21 @@ func (da *DefaultAuthenticator) CheckSession(next http.Handler) http.Handler {
 
 		if expiry.Before(time.Now()) {
 			log.Printf("Access token expired, trying to refresh")
-			refreshToken, err := da.session.GetString(r.Context(), sessionKeyRefreshToken)
-			if err != nil {
-				http.Error(w, "", http.StatusInternalServerError)
-				log.Printf("Failed to get %v from session : %v", sessionKeyRefreshToken, err)
-				return
-			}
-			token, err := da.Refresh(r.Context(), refreshToken)
+
+			err := da.Refresh(r.Context())
 			if err != nil {
 				log.Printf("refresh failed: %v", err)
 				if err := da.session.Destroy(r.Context()); err != nil {
 					fmt.Printf("failed to clear session: %v", err)
+					return
 				} else {
 					fmt.Printf("cleared session")
 				}
 				next.ServeHTTP(w, r)
 				return
 			}
-			//successful refresh, , update session
-			if err := da.session.StoreString(r.Context(), sessionKeyAccessToken, token.AccessToken); err != nil {
-				http.Error(w, "", http.StatusInternalServerError)
-				log.Printf("failed to store %v to session : %v", sessionKeyAccessToken, err)
-				return
-			}
 
-			if err := da.session.StoreTime(r.Context(), sessionKeyExpiry, token.Expiry); err != nil {
-				http.Error(w, "", http.StatusInternalServerError)
-				log.Printf("failed to store %v to session : %v", sessionKeyExpiry, err)
-				return
-			}
-			log.Printf("refreshed session, expires in %v", token.Expiry)
+			log.Printf("sucesfully refreshed session")
 		}
 
 		log.Printf("Check session middleware: allowed")

@@ -1,6 +1,7 @@
 package oidcAuth
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"net/url"
@@ -27,7 +28,7 @@ func NewMockAuthenticator(defaultURLAfterLogin, urlAfterLogout string,
 	}
 }
 
-func (m MockAuthenticator) CheckSession(next http.Handler) http.Handler {
+func (m *MockAuthenticator) CheckSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Mock CheckSession called")
 
@@ -102,4 +103,8 @@ func (m *MockAuthenticator) LogoutHandler(w http.ResponseWriter, r *http.Request
 		log.Printf("LogoutHandler: cleared session")
 	}
 	http.Redirect(w, r, m.urlAfterLogout, http.StatusTemporaryRedirect)
+}
+
+func (m *MockAuthenticator) Refresh(_ context.Context) error {
+	return nil
 }
