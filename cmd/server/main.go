@@ -4,12 +4,16 @@ import (
 	"context"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	"github.com/go-co-op/gocron"
+	"golang.org/x/crypto/sha3"
+	"golang.org/x/sync/errgroup"
 	"itsTasty/pkg/api/adapters/dishRepo"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports/botAPI"
@@ -19,7 +23,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -30,10 +36,11 @@ const (
 	envVarDBUser = "DB_USER"
 	envVarDBPW   = "DB_PW"
 
-	envOIDCSecret      = "OIDC_SECRET"
-	envOIDCCallbackURL = "OIDC_CALLBACK_URL"
-	envOIDCProviderURL = "OIDC_PROVIDER_URL"
-	envOIDCID          = "OIDC_ID"
+	envOIDCSecret                 = "OIDC_SECRET"
+	envOIDCCallbackURL            = "OIDC_CALLBACK_URL"
+	envOIDCProviderURL            = "OIDC_PROVIDER_URL"
+	envOIDCID                     = "OIDC_ID"
+	envOIDCRefreshIntervalMinutes = "OIDC_REFRESH_INTERVAL_MINUTES"
 
 	envBotAPIToken = "BOT_API_TOKEN"
 
@@ -59,12 +66,13 @@ type config struct {
 
 	//OIDC Config
 
-	oidcSecret      string
-	oidcCallbackURL string
-	oidcProviderURL string
-	oidcID          string
-	urlAfterLogin   string
-	urlAfterLogout  string
+	oidcSecret           string
+	oidcCallbackURL      string
+	oidcProviderURL      string
+	oidcID               string
+	urlAfterLogin        string
+	urlAfterLogout       string
+	oidcRefreshIntervall time.Duration
 
 	//Bot Auth Config
 
@@ -90,6 +98,7 @@ type application struct {
 	session       *scs.SessionManager
 	router        chi.Router
 	dishRepo      domain.DishRepo
+	jobScheduler  *gocron.Scheduler
 }
 
 func parseConfig() (*config, error) {
@@ -153,6 +162,22 @@ func parseConfig() (*config, error) {
 		cfg.oidcID = oidcID
 	}
 
+	{
+		oidcRefreshIntervalStr := os.Getenv(envOIDCRefreshIntervalMinutes)
+		//if not specified set default value
+		if oidcRefreshIntervalStr == "" {
+			cfg.oidcRefreshIntervall = 60 * time.Minute
+			log.Printf("%v was not specified and defaults to %v", envOIDCRefreshIntervalMinutes, cfg.oidcRefreshIntervall)
+		} else {
+			oidcRefreshIntervalUint, err := strconv.ParseUint(oidcRefreshIntervalStr, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse value %v of %s to uint64 : %v", oidcRefreshIntervalStr, envOIDCRefreshIntervalMinutes, err)
+			}
+			cfg.oidcRefreshIntervall = time.Duration(oidcRefreshIntervalUint) * time.Minute
+		}
+
+	}
+
 	if botApiToken := os.Getenv(envBotAPIToken); botApiToken == "" {
 		return nil, setEnvErr(envBotAPIToken)
 	} else {
@@ -211,6 +236,84 @@ func newApplication(cfg *config) (*application, error) {
 		}
 	}
 
+	//Schedule job to periodically refresh the oidc access tokens for all known sessions.
+	//This way, our session token lifetime dictates the max lifetime of the session and not the oidc refresh
+	//interval of the oidc provider
+
+	jobScheduler := gocron.NewScheduler(time.Local)
+	_, err := jobScheduler.Every(cfg.oidcRefreshIntervall).Do(func() {
+		log.Printf("OIDC Refresh Job : Starting refresh...")
+		//time limit for refresh jobs
+		iterateCtx, iterateCtxCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer iterateCtxCancel()
+
+		refreshJobs, _ := errgroup.WithContext(iterateCtx)
+		refreshJobs.SetLimit(5)
+
+		//number of sessions
+		sessionCounter := 0
+		//number of successfully refreshed sessions
+		successCounter := 0
+		successCounterLock := &sync.Mutex{}
+		//iterateCtx over all active session and try to refresh them
+		err := session.Iterate(iterateCtx, func(ctx context.Context) error {
+			sessionCounter += 1
+			//for logging purposes we want a reference to stick to our sessions, however printing the session
+			//token itself would allow anyone with access to the logs to hijack that users session
+			//thus we use the hash of the value isntead
+			b := sha3.Sum512([]byte(session.Token(ctx)))
+			tokenID := hex.EncodeToString(b[:])
+			refreshJobs.Go(func() error {
+				var err error
+				for retries := 2; retries > 0; retries-- {
+					err = authenticator.Refresh(ctx)
+					if err == nil {
+						break
+					}
+					time.Sleep(3 * time.Second)
+				}
+				if err == nil {
+					log.Printf("OIDC Refresh Job: Refreshed session  %v", tokenID)
+					successCounterLock.Lock()
+					successCounter += 1
+					successCounterLock.Unlock()
+					return nil
+				}
+
+				//if we get here, refresh has failed
+
+				log.Printf("OIDC Refresh Job: Failed to refresh session %v : %v", tokenID, err)
+				if err := session.Destroy(ctx); err != nil {
+					log.Printf("OIDC Refresh Job: Failed to destroy session  %v after refresh failure : %v", tokenID, err)
+				} else {
+					log.Printf("OIDC Refresh Job: Destroyed session for %v after refresh failure : %v", tokenID, err)
+				}
+
+				//we do not want to propagate individual refresh errors beyond this function
+				return nil
+			})
+
+			//very basic request throttling
+			if sessionCounter%3 == 0 {
+				time.Sleep(500 * time.Millisecond)
+			}
+
+			return nil
+		})
+		if err != nil {
+			log.Printf("OIDC Refresh Job : Iterate failed : %v", err)
+		}
+
+		if err := refreshJobs.Wait(); err != nil {
+			log.Printf("OIDC Refresh Job : errgroup.Wait failed : %v", err)
+		}
+		log.Printf("OIDC Refresh Job: Found %v sessions, refreshed %v, terminated %v", sessionCounter, successCounter, sessionCounter-successCounter)
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to schedule session refresh job : %v", err)
+	}
+
 	//Connect to db
 	db, err := connectToDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
 	if err != nil {
@@ -228,6 +331,7 @@ func newApplication(cfg *config) (*application, error) {
 		authenticator: authenticator,
 		session:       session,
 		dishRepo:      repo,
+		jobScheduler:  jobScheduler,
 	}
 
 	app.router, err = app.setupRouter()
@@ -401,6 +505,12 @@ func run(app *application) error {
 		}
 
 	}()
+
+	//start all jobs once at startup to quickly detect failures in otherwise seldom running jobs
+	app.jobScheduler.RunAll()
+
+	//run jobs periodically in background
+	app.jobScheduler.StartAsync()
 
 	log.Printf("Startup complete :)")
 	<-mainCtx.Done()
