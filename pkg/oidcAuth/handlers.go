@@ -76,7 +76,7 @@ func (da *DefaultAuthenticator) LoginHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Check if the user requested a specific page to be redirected to after login
-	redirectAfterLogin := da.callbackURL
+	redirectAfterLogin := da.defaultURLAfterLogin
 
 	if target := r.URL.Query().Get("redirectTo"); target != "" {
 		u, err := url.Parse(target)
@@ -90,11 +90,11 @@ func (da *DefaultAuthenticator) LoginHandler(w http.ResponseWriter, r *http.Requ
 			log.Printf("redirectTo was set to \"%v\" which is outside of our page", u.String())
 			return
 		}
-		redirectAfterLogin = *u
+		redirectAfterLogin = u.String()
 	}
 
 	//Store redirect after login location in session, to be able to a access it in the redirect handler
-	if err := da.session.StoreString(r.Context(), sessionKeyRedirectTarget, redirectAfterLogin.String()); err != nil {
+	if err := da.session.StoreString(r.Context(), sessionKeyRedirectTarget, redirectAfterLogin); err != nil {
 		http.Error(w, "", http.StatusInternalServerError)
 		log.Printf("Failed to save value %v for key %v in session : %v", redirectAfterLogin, sessionKeyRedirectTarget, err)
 		return
