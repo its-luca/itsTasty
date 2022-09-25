@@ -37,86 +37,20 @@ func (da *DefaultAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.R
 
 	log.Printf("Done\n extracting token...")
 
-	rawIDToken, ok := token.Extra("id_token").(string)
-	if !ok {
-		log.Printf("No id_token field in oauth2 token")
-		http.Error(w, "", http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("Done!\nVerifiyng token...")
-
-	idToken, err := da.Verify(context.TODO(), rawIDToken)
-	if err != nil {
-		log.Printf("Failed to verify ID toekn : %v", err)
-		http.Error(w, "", http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("Done!\nParsing User Info...")
-
-	// Getting now the userInfo
-
-	var claims map[string]interface{}
-	if err := idToken.Claims(&claims); err != nil {
-		log.Printf("Failed to parse claims struct %+v : %v", claims, err)
-		http.Error(w, "", http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("Done. Profile is %+v\n", claims)
-	email, ok := claims["email"].(string)
-	if !ok {
-		http.Error(w, "", http.StatusInternalServerError)
-		log.Printf("Expected key %v in claims %+v", "email", claims)
-		return
-	}
-	emailVerified, ok := claims["email_verified"].(bool)
-	if !ok {
-		http.Error(w, "", http.StatusInternalServerError)
-		log.Printf("Expected key %v in claims %+v", "email_verified", claims)
-		return
-	}
-
-	if !emailVerified {
-		http.Error(w, "Please verify your email", http.StatusBadGateway)
-		log.Printf("Rejecting %+v because email is not verified", claims)
-		return
-	}
-
-	profile := UserProfile{Email: email}
-
-	log.Printf("token type: %v. Expiry: %v\n", token.TokenType, token.Expiry)
-
-	if err := da.session.StoreString(r.Context(), sessionKeyAccessToken, token.AccessToken); err != nil {
-		http.Error(w, "", http.StatusInternalServerError)
-		log.Printf("failed to store %v to session : %v", sessionKeyAccessToken, err)
-		return
-	}
-
-	if err := da.session.StoreTime(r.Context(), sessionKeyExpiry, token.Expiry); err != nil {
-		http.Error(w, "", http.StatusInternalServerError)
-		log.Printf("failed to store %v to session : %v", sessionKeyExpiry, err)
-		return
-	}
-
-	if err := da.session.StoreString(r.Context(), sessionKeyRefreshToken, token.RefreshToken); err != nil {
-		http.Error(w, "", http.StatusInternalServerError)
-		log.Printf("failed to store %v to session : %v", sessionKeyRefreshToken, err)
-		return
-	}
-
-	if err := da.session.StoreProfile(r.Context(), SessionKeyProfile, profile); err != nil {
-		http.Error(w, "", http.StatusInternalServerError)
-		log.Printf("failed to store %v to session : %v", SessionKeyProfile, err)
-		return
-	}
-
 	//fetch redirect target that was requested during login. we verified that it is within our page
 	redirectTo, err := da.session.GetString(r.Context(), sessionKeyRedirectTarget)
 	if err != nil {
 		http.Error(w, "", http.StatusInternalServerError)
 		log.Printf("failed to retrieve redirect target from session : %v", err)
+		return
+	}
+	if err := da.session.ClearEntry(r.Context(), sessionKeyRedirectTarget); err != nil {
+		log.Printf("failed to clear %v from session : %v", sessionKeyRedirectTarget, err)
+	}
+
+	if err := da.verifyTokenAndStoreInSession(r.Context(), token); err != nil {
+		log.Printf("verifyTokenAndStoreInSession failed : %v", err)
+		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
 
@@ -145,7 +79,7 @@ func (da *DefaultAuthenticator) LoginHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Check if the user requested a specific page to be redirected to after login
-	redirectAfterLogin := da.callbackURL
+	redirectAfterLogin := da.defaultURLAfterLogin
 
 	if target := r.URL.Query().Get("redirectTo"); target != "" {
 		u, err := url.Parse(target)
@@ -159,11 +93,11 @@ func (da *DefaultAuthenticator) LoginHandler(w http.ResponseWriter, r *http.Requ
 			log.Printf("redirectTo was set to \"%v\" which is outside of our page", u.String())
 			return
 		}
-		redirectAfterLogin = *u
+		redirectAfterLogin = u.String()
 	}
 
 	//Store redirect after login location in session, to be able to a access it in the redirect handler
-	if err := da.session.StoreString(r.Context(), sessionKeyRedirectTarget, redirectAfterLogin.String()); err != nil {
+	if err := da.session.StoreString(r.Context(), sessionKeyRedirectTarget, redirectAfterLogin); err != nil {
 		http.Error(w, "", http.StatusInternalServerError)
 		log.Printf("Failed to save value %v for key %v in session : %v", redirectAfterLogin, sessionKeyRedirectTarget, err)
 		return
