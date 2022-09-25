@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-TAG="staging"
+TAG="development"
 
 if [[ "$#" -ne 1 ]]; then
   echo "Usage: local-docker-build.sh <path to env file for frontend>"
