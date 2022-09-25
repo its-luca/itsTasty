@@ -264,12 +264,20 @@ func newApplication(cfg *config) (*application, error) {
 			b := sha3.Sum512([]byte(session.Token(ctx)))
 			tokenID := hex.EncodeToString(b[:])
 			refreshJobs.Go(func() error {
+				defer func() {
+					_, _, err := session.Commit(ctx)
+					if err != nil {
+						log.Printf("OIDC Refresh Job: Token id %v, failed to commit session data :%v", tokenID, err)
+						return
+					}
+				}()
 				var err error
 				for retries := 2; retries > 0; retries-- {
 					err = authenticator.Refresh(ctx)
 					if err == nil {
 						break
 					}
+					log.Printf("OIDC Refresh Job: Refresh for token id %v failed (%v retries left) : %v", tokenID, retries, err)
 					time.Sleep(3 * time.Second)
 				}
 				if err == nil {

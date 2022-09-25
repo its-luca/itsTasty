@@ -92,6 +92,58 @@ func NewDefaultAuthenticator(providerURL, clientID, clientSecret, callbackURL, d
 	}, nil
 }
 
+func (da *DefaultAuthenticator) verifyTokenAndStoreInSession(ctx context.Context, token *oauth2.Token) error {
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		return fmt.Errorf("no id_token field in oauth2 token")
+	}
+
+	idToken, err := da.Verify(context.TODO(), rawIDToken)
+	if err != nil {
+		return fmt.Errorf("failed to verify ID token : %v", err)
+	}
+
+	// Getting  the userInfo
+
+	var claims map[string]interface{}
+	if err := idToken.Claims(&claims); err != nil {
+		return fmt.Errorf("failed to parse claims struct %+v : %v", claims, err)
+	}
+
+	email, ok := claims["email"].(string)
+	if !ok {
+		return fmt.Errorf("expected key %v in claims %+v", "email", claims)
+	}
+	emailVerified, ok := claims["email_verified"].(bool)
+	if !ok {
+		return fmt.Errorf("expected key %v in claims %+v", "email_verified", claims)
+	}
+
+	if !emailVerified {
+		return fmt.Errorf("rejecting %+v because email is not verified", claims)
+	}
+
+	profile := UserProfile{Email: email}
+
+	if err := da.session.StoreString(ctx, sessionKeyAccessToken, token.AccessToken); err != nil {
+		return fmt.Errorf("failed to store %v to session : %v", sessionKeyAccessToken, err)
+	}
+
+	if err := da.session.StoreTime(ctx, sessionKeyExpiry, token.Expiry); err != nil {
+		return fmt.Errorf("failed to store %v to session : %v", sessionKeyExpiry, err)
+	}
+
+	if err := da.session.StoreString(ctx, sessionKeyRefreshToken, token.RefreshToken); err != nil {
+		return fmt.Errorf("failed to store %v to session : %v", sessionKeyRefreshToken, err)
+	}
+
+	if err := da.session.StoreProfile(ctx, SessionKeyProfile, profile); err != nil {
+		return fmt.Errorf("failed to store %v to session : %v", SessionKeyProfile, err)
+	}
+
+	return nil
+}
+
 func (da *DefaultAuthenticator) Refresh(ctx context.Context) error {
 
 	//get refresh token from session storage
@@ -107,16 +159,8 @@ func (da *DefaultAuthenticator) Refresh(ctx context.Context) error {
 	}
 
 	//Success! Store new data in session
-	if err := da.session.StoreString(ctx, sessionKeyAccessToken, token.AccessToken); err != nil {
-		return fmt.Errorf("failed to store %v to session : %v", sessionKeyAccessToken, err)
-	}
-
-	if err := da.session.StoreString(ctx, sessionKeyRefreshToken, token.RefreshToken); err != nil {
-		return fmt.Errorf("failed to store %v to session : %v", sessionKeyRefreshToken, err)
-	}
-
-	if err := da.session.StoreTime(ctx, sessionKeyExpiry, token.Expiry); err != nil {
-		return fmt.Errorf("failed to store %v to session : %v", sessionKeyExpiry, err)
+	if err := da.verifyTokenAndStoreInSession(ctx, token); err != nil {
+		return fmt.Errorf("verifyTokenAndStoreInSession failed : %v", err)
 	}
 
 	return nil
