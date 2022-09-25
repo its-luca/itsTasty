@@ -44,6 +44,9 @@ func (da *DefaultAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.R
 		log.Printf("failed to retrieve redirect target from session : %v", err)
 		return
 	}
+	if err := da.session.ClearEntry(r.Context(), sessionKeyRedirectTarget); err != nil {
+		log.Printf("failed to clear %v from session : %v", sessionKeyRedirectTarget, err)
+	}
 
 	if err := da.verifyTokenAndStoreInSession(r.Context(), token); err != nil {
 		log.Printf("verifyTokenAndStoreInSession failed : %v", err)
