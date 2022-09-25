@@ -15,8 +15,14 @@ export  function LoginPage() {
     const theme = useTheme();
     const isSmallScreen = useMediaQuery(theme.breakpoints.down("sm"));
 
+    //
     //Check if we should redirect to a specific location
+    //
+
+    //base url without redirectTo param
     let loginURL =  new URL(urlJoin(process.env.REACT_APP_AUTH_API_BASE_URL!,'/login',));
+
+    //check if we placed redirect info in location state. If so , set redirectTo param of login url accordingly
     if( location.state ) {
         const {from} = location.state as LocationState
         if( from.pathname && from.pathname != "" && from.pathname != "/") {
@@ -26,7 +32,6 @@ export  function LoginPage() {
     }
 
 
-    console.log('requested redirect: ' + loginURL)
 
     return (
         <Grid2
