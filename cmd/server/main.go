@@ -54,6 +54,11 @@ const (
 
 	//envVarDevCORS one URL that is allowed for CORS requests
 	envVarDevCORS = "DEV_CORS"
+
+	//envVarSessionLifetime is the maximum lifetime of the session cookie. Afterwards the user
+	//has to log in again
+	//see https://pkg.go.dev/time#ParseDuration for input format
+	envVarSessionLifetime = "SESSION_LIFETIME"
 )
 
 type config struct {
@@ -90,6 +95,9 @@ type config struct {
 
 	devMode bool
 	devCORS string
+
+	//sessionLifetime is the expiry time of the session cookie
+	sessionLifetime time.Duration
 }
 
 type application struct {
@@ -200,6 +208,17 @@ func parseConfig() (*config, error) {
 		cfg.devCORS = devCORS
 	}
 
+	if sessionLifetimeAsStr := os.Getenv(envVarSessionLifetime); sessionLifetimeAsStr == "" {
+		cfg.sessionLifetime = 7 * 24 * time.Hour
+		log.Printf("%s was not specified and defaults to : %v", envVarSessionLifetime, cfg.sessionLifetime)
+	} else {
+		sessionLifetime, err := time.ParseDuration(sessionLifetimeAsStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse value %v of %s to time duration : %v",
+				sessionLifetimeAsStr, envVarSessionLifetime, err)
+		}
+		cfg.sessionLifetime = sessionLifetime
+	}
 	cfg.listen = ":80"
 
 	return &cfg, nil
@@ -211,7 +230,7 @@ func newApplication(cfg *config) (*application, error) {
 
 	log.Printf("Building session storage...")
 	session := scs.New()
-	session.Lifetime = 36 * time.Hour
+	session.Lifetime = cfg.sessionLifetime
 	session.Cookie.Secure = true
 
 	if cfg.devMode {
