@@ -231,6 +231,7 @@ func newApplication(cfg *config) (*application, error) {
 	log.Printf("Building session storage...")
 	session := scs.New()
 	session.Lifetime = cfg.sessionLifetime
+	session.Cookie.Name = "its_tasty_session"
 	session.Cookie.Secure = true
 
 	if cfg.devMode {
