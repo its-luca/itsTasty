@@ -9,7 +9,7 @@ require (
 	github.com/getkin/kin-openapi v0.107.0
 	github.com/go-chi/chi/v5 v5.0.7
 	github.com/go-chi/cors v1.2.1
-	github.com/go-co-op/gocron v1.17.0
+	github.com/go-co-op/gocron v1.17.1
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/crypto v0.1.0
