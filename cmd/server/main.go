@@ -224,7 +224,9 @@ func parseConfig() (*config, error) {
 	return &cfg, nil
 }
 
-func newApplication(cfg *config) (*application, error) {
+type dishRepoFactoryFunc func() (domain.DishRepo, error)
+
+func newApplication(cfg *config, dishRepoFactory dishRepoFactoryFunc) (*application, error) {
 
 	//Build Session Storage
 
@@ -342,16 +344,9 @@ func newApplication(cfg *config) (*application, error) {
 		return nil, fmt.Errorf("failed to schedule session refresh job : %v", err)
 	}
 
-	//Connect to db
-	db, err := connectToDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
+	repo, err := dishRepoFactory()
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect do db : %v", err)
-	}
-
-	//Build dish repo
-	repo, err := dishRepo.NewMysqlRepo(db)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build mysql dish repo : %v", err)
+		return nil, fmt.Errorf("failed to instantiate db backend : %v", err)
 	}
 
 	app := application{
@@ -558,15 +553,30 @@ func main() {
 
 	log.SetFlags(log.Flags() | log.Llongfile)
 
-	log.Printf("Parsing config...")
+	log.Printf("Parsing Config...")
 	cfg, err := parseConfig()
 	if err != nil {
 		log.Printf("parseConfig : %v", err)
 		return
 	}
 
+	defaultDishRepoFactory := func() (domain.DishRepo, error) {
+		//Connect to db
+		db, err := connectToDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect do db : %v", err)
+		}
+
+		//Build dish repo
+		repo, err := dishRepo.NewMysqlRepo(db)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build mysql dish repo : %v", err)
+		}
+		return repo, nil
+	}
+
 	log.Printf("Building application...")
-	app, err := newApplication(cfg)
+	app, err := newApplication(cfg, defaultDishRepoFactory)
 	if err != nil {
 		log.Printf("newApplication : %v", err)
 		return
