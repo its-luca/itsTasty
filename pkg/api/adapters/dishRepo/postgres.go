@@ -17,11 +17,10 @@ import (
 
 type PostgresRepo struct {
 	db              *sql.DB
-	migrationSource *migrate.FileMigrationSource
+	migrationSource migrate.MigrationSource
 }
 
-func NewPostgresRepo(db *sql.DB) (domain.DishRepo, error) {
-	migrationSource := &migrate.FileMigrationSource{Dir: "../../../../migrations/postgres"}
+func NewPostgresRepo(db *sql.DB, migrationSource migrate.MigrationSource) (domain.DishRepo, error) {
 	appliedMigrations, err := migrate.Exec(db, "postgres", migrationSource, migrate.Up)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply db migrations : %v", err)

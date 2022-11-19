@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -19,6 +20,917 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 )
+
+// RequestEditorFn  is the function signature for the RequestEditor callback function
+type RequestEditorFn func(ctx context.Context, req *http.Request) error
+
+// Doer performs HTTP requests.
+//
+// The standard http.Client implements this interface.
+type HttpRequestDoer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// Client which conforms to the OpenAPI3 specification for this service.
+type Client struct {
+	// The endpoint of the server conforming to this interface, with scheme,
+	// https://api.deepmap.com for example. This can contain a path relative
+	// to the server, such as https://api.deepmap.com/dev-test, and all the
+	// paths in the swagger spec will be appended to the server.
+	Server string
+
+	// Doer for performing requests, typically a *http.Client with any
+	// customized settings, such as certificate chains.
+	Client HttpRequestDoer
+
+	// A list of callbacks for modifying requests which are generated before sending over
+	// the network.
+	RequestEditors []RequestEditorFn
+}
+
+// ClientOption allows setting custom parameters during construction
+type ClientOption func(*Client) error
+
+// Creates a new Client, with reasonable defaults
+func NewClient(server string, opts ...ClientOption) (*Client, error) {
+	// create a client with sane default values
+	client := Client{
+		Server: server,
+	}
+	// mutate client and add all optional params
+	for _, o := range opts {
+		if err := o(&client); err != nil {
+			return nil, err
+		}
+	}
+	// ensure the server URL always has a trailing slash
+	if !strings.HasSuffix(client.Server, "/") {
+		client.Server += "/"
+	}
+	// create httpClient, if not already present
+	if client.Client == nil {
+		client.Client = &http.Client{}
+	}
+	return &client, nil
+}
+
+// WithHTTPClient allows overriding the default Doer, which is
+// automatically created using http.Client. This is useful for tests.
+func WithHTTPClient(doer HttpRequestDoer) ClientOption {
+	return func(c *Client) error {
+		c.Client = doer
+		return nil
+	}
+}
+
+// WithRequestEditorFn allows setting up a callback function, which will be
+// called right before sending the request. This can be used to mutate the request.
+func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
+	return func(c *Client) error {
+		c.RequestEditors = append(c.RequestEditors, fn)
+		return nil
+	}
+}
+
+// The interface specification for the client above.
+type ClientInterface interface {
+	// GetDishesDishID request
+	GetDishesDishID(ctx context.Context, dishID int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostDishesDishID request with any body
+	PostDishesDishIDWithBody(ctx context.Context, dishID int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostDishesDishID(ctx context.Context, dishID int64, body PostDishesDishIDJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetGetAllDishes request
+	GetGetAllDishes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostSearchDish request with any body
+	PostSearchDishWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostSearchDish(ctx context.Context, body PostSearchDishJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostSearchDishByDate request with any body
+	PostSearchDishByDateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostSearchDishByDate(ctx context.Context, body PostSearchDishByDateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetUsersMe request
+	GetUsersMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) GetDishesDishID(ctx context.Context, dishID int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDishesDishIDRequest(c.Server, dishID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostDishesDishIDWithBody(ctx context.Context, dishID int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostDishesDishIDRequestWithBody(c.Server, dishID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostDishesDishID(ctx context.Context, dishID int64, body PostDishesDishIDJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostDishesDishIDRequest(c.Server, dishID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetGetAllDishes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetGetAllDishesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostSearchDishWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSearchDishRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostSearchDish(ctx context.Context, body PostSearchDishJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSearchDishRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostSearchDishByDateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSearchDishByDateRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostSearchDishByDate(ctx context.Context, body PostSearchDishByDateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSearchDishByDateRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetUsersMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetUsersMeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewGetDishesDishIDRequest generates requests for GetDishesDishID
+func NewGetDishesDishIDRequest(server string, dishID int64) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "dishID", runtime.ParamLocationPath, dishID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/dishes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostDishesDishIDRequest calls the generic PostDishesDishID builder with application/json body
+func NewPostDishesDishIDRequest(server string, dishID int64, body PostDishesDishIDJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostDishesDishIDRequestWithBody(server, dishID, "application/json", bodyReader)
+}
+
+// NewPostDishesDishIDRequestWithBody generates requests for PostDishesDishID with any type of body
+func NewPostDishesDishIDRequestWithBody(server string, dishID int64, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "dishID", runtime.ParamLocationPath, dishID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/dishes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetGetAllDishesRequest generates requests for GetGetAllDishes
+func NewGetGetAllDishesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/getAllDishes")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostSearchDishRequest calls the generic PostSearchDish builder with application/json body
+func NewPostSearchDishRequest(server string, body PostSearchDishJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostSearchDishRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostSearchDishRequestWithBody generates requests for PostSearchDish with any type of body
+func NewPostSearchDishRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/searchDish")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostSearchDishByDateRequest calls the generic PostSearchDishByDate builder with application/json body
+func NewPostSearchDishByDateRequest(server string, body PostSearchDishByDateJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostSearchDishByDateRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostSearchDishByDateRequestWithBody generates requests for PostSearchDishByDate with any type of body
+func NewPostSearchDishByDateRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/searchDish/byDate")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetUsersMeRequest generates requests for GetUsersMe
+func NewGetUsersMeRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/users/me")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
+	for _, r := range c.RequestEditors {
+		if err := r(ctx, req); err != nil {
+			return err
+		}
+	}
+	for _, r := range additionalEditors {
+		if err := r(ctx, req); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ClientWithResponses builds on ClientInterface to offer response payloads
+type ClientWithResponses struct {
+	ClientInterface
+}
+
+// NewClientWithResponses creates a new ClientWithResponses, which wraps
+// Client with return type handling
+func NewClientWithResponses(server string, opts ...ClientOption) (*ClientWithResponses, error) {
+	client, err := NewClient(server, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &ClientWithResponses{client}, nil
+}
+
+// WithBaseURL overrides the baseURL.
+func WithBaseURL(baseURL string) ClientOption {
+	return func(c *Client) error {
+		newBaseURL, err := url.Parse(baseURL)
+		if err != nil {
+			return err
+		}
+		c.Server = newBaseURL.String()
+		return nil
+	}
+}
+
+// ClientWithResponsesInterface is the interface specification for the client with responses above.
+type ClientWithResponsesInterface interface {
+	// GetDishesDishID request
+	GetDishesDishIDWithResponse(ctx context.Context, dishID int64, reqEditors ...RequestEditorFn) (*GetDishesDishIDResponse, error)
+
+	// PostDishesDishID request with any body
+	PostDishesDishIDWithBodyWithResponse(ctx context.Context, dishID int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostDishesDishIDResponse, error)
+
+	PostDishesDishIDWithResponse(ctx context.Context, dishID int64, body PostDishesDishIDJSONRequestBody, reqEditors ...RequestEditorFn) (*PostDishesDishIDResponse, error)
+
+	// GetGetAllDishes request
+	GetGetAllDishesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetGetAllDishesResponse, error)
+
+	// PostSearchDish request with any body
+	PostSearchDishWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSearchDishResponse, error)
+
+	PostSearchDishWithResponse(ctx context.Context, body PostSearchDishJSONRequestBody, reqEditors ...RequestEditorFn) (*PostSearchDishResponse, error)
+
+	// PostSearchDishByDate request with any body
+	PostSearchDishByDateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSearchDishByDateResponse, error)
+
+	PostSearchDishByDateWithResponse(ctx context.Context, body PostSearchDishByDateJSONRequestBody, reqEditors ...RequestEditorFn) (*PostSearchDishByDateResponse, error)
+
+	// GetUsersMe request
+	GetUsersMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetUsersMeResponse, error)
+}
+
+type GetDishesDishIDResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GetDishResp
+	JSON400      *BasicError
+	JSON500      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r GetDishesDishIDResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetDishesDishIDResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostDishesDishIDResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *BasicError
+	JSON500      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r PostDishesDishIDResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostDishesDishIDResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetGetAllDishesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GetAllDishesResponse
+	JSON500      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r GetGetAllDishesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetGetAllDishesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostSearchDishResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SearchDishResp
+	JSON500      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r PostSearchDishResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostSearchDishResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostSearchDishByDateResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]int64
+	JSON500      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r PostSearchDishByDateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostSearchDishByDateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetUsersMeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GetUsersMeResp
+	JSON500      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r GetUsersMeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetUsersMeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// GetDishesDishIDWithResponse request returning *GetDishesDishIDResponse
+func (c *ClientWithResponses) GetDishesDishIDWithResponse(ctx context.Context, dishID int64, reqEditors ...RequestEditorFn) (*GetDishesDishIDResponse, error) {
+	rsp, err := c.GetDishesDishID(ctx, dishID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetDishesDishIDResponse(rsp)
+}
+
+// PostDishesDishIDWithBodyWithResponse request with arbitrary body returning *PostDishesDishIDResponse
+func (c *ClientWithResponses) PostDishesDishIDWithBodyWithResponse(ctx context.Context, dishID int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostDishesDishIDResponse, error) {
+	rsp, err := c.PostDishesDishIDWithBody(ctx, dishID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostDishesDishIDResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostDishesDishIDWithResponse(ctx context.Context, dishID int64, body PostDishesDishIDJSONRequestBody, reqEditors ...RequestEditorFn) (*PostDishesDishIDResponse, error) {
+	rsp, err := c.PostDishesDishID(ctx, dishID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostDishesDishIDResponse(rsp)
+}
+
+// GetGetAllDishesWithResponse request returning *GetGetAllDishesResponse
+func (c *ClientWithResponses) GetGetAllDishesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetGetAllDishesResponse, error) {
+	rsp, err := c.GetGetAllDishes(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetGetAllDishesResponse(rsp)
+}
+
+// PostSearchDishWithBodyWithResponse request with arbitrary body returning *PostSearchDishResponse
+func (c *ClientWithResponses) PostSearchDishWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSearchDishResponse, error) {
+	rsp, err := c.PostSearchDishWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostSearchDishResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostSearchDishWithResponse(ctx context.Context, body PostSearchDishJSONRequestBody, reqEditors ...RequestEditorFn) (*PostSearchDishResponse, error) {
+	rsp, err := c.PostSearchDish(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostSearchDishResponse(rsp)
+}
+
+// PostSearchDishByDateWithBodyWithResponse request with arbitrary body returning *PostSearchDishByDateResponse
+func (c *ClientWithResponses) PostSearchDishByDateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSearchDishByDateResponse, error) {
+	rsp, err := c.PostSearchDishByDateWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostSearchDishByDateResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostSearchDishByDateWithResponse(ctx context.Context, body PostSearchDishByDateJSONRequestBody, reqEditors ...RequestEditorFn) (*PostSearchDishByDateResponse, error) {
+	rsp, err := c.PostSearchDishByDate(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostSearchDishByDateResponse(rsp)
+}
+
+// GetUsersMeWithResponse request returning *GetUsersMeResponse
+func (c *ClientWithResponses) GetUsersMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetUsersMeResponse, error) {
+	rsp, err := c.GetUsersMe(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetUsersMeResponse(rsp)
+}
+
+// ParseGetDishesDishIDResponse parses an HTTP response from a GetDishesDishIDWithResponse call
+func ParseGetDishesDishIDResponse(rsp *http.Response) (*GetDishesDishIDResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDishesDishIDResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GetDishResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostDishesDishIDResponse parses an HTTP response from a PostDishesDishIDWithResponse call
+func ParsePostDishesDishIDResponse(rsp *http.Response) (*PostDishesDishIDResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostDishesDishIDResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetGetAllDishesResponse parses an HTTP response from a GetGetAllDishesWithResponse call
+func ParseGetGetAllDishesResponse(rsp *http.Response) (*GetGetAllDishesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetGetAllDishesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GetAllDishesResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostSearchDishResponse parses an HTTP response from a PostSearchDishWithResponse call
+func ParsePostSearchDishResponse(rsp *http.Response) (*PostSearchDishResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostSearchDishResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SearchDishResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostSearchDishByDateResponse parses an HTTP response from a PostSearchDishByDateWithResponse call
+func ParsePostSearchDishByDateResponse(rsp *http.Response) (*PostSearchDishByDateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostSearchDishByDateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []int64
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetUsersMeResponse parses an HTTP response from a GetUsersMeWithResponse call
+func ParseGetUsersMeResponse(rsp *http.Response) (*GetUsersMeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetUsersMeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GetUsersMeResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -758,32 +1670,32 @@ func (sh *strictHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"XSymmydid737PQAA//9cvEHM3BkAAA==",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
