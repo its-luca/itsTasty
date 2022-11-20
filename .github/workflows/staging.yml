@@ -43,3 +43,5 @@ jobs:
               REACT_APP_USER_API_BASE_URL=${{ secrets.REACT_APP_USER_API_BASE_URL }}
 
             tags: ${{ steps.meta.outputs.tags }}
+            cache-from: type=registry,ref=ghcr.io/its-luca/itstasty:buildcache
+            cache-to: type=registry,ref=ghcr.io/its-luca/itstasty:buildcache,mode=max

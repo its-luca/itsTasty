@@ -41,7 +41,7 @@ type DishRepo interface {
 
 	//GetRating returns the rating of the user for the dish. Second result is the id of the rating
 	GetRating(ctx context.Context, userEmail string, dishID int64) (*DishRating, error)
-	//SetOrCreateRating creates or overwrites the rating of the use for the given dish
+	//SetOrCreateRating creates or overwrites the rating of the user for the given dish
 	SetOrCreateRating(ctx context.Context, userEmail string, dishID int64, rating DishRating) (bool, error)
 	//GetAllRatingsForDish returns all ratings for the dish
 	GetAllRatingsForDish(ctx context.Context, dishID int64) (*DishRatings, error)

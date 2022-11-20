@@ -13,18 +13,18 @@ type MockAuthenticator struct {
 	defaultURLAfterLogin string
 	urlAfterLogout       string
 
-	profile UserProfile
+	defaultUserProfile UserProfile
 }
 
 // NewMockAuthenticator returns and authenticator that creates cookie on login, checks existence in CheckSession
-// and destroys cookie in logout. Cookie is always for a fixed user
+// and destroys cookie in logout. The user may be overwritten by passing a "userEmail" query param to the login endpoint
 func NewMockAuthenticator(defaultURLAfterLogin, urlAfterLogout string,
 	storage SessionStorage) *MockAuthenticator {
 	return &MockAuthenticator{
 		session:              storage,
 		defaultURLAfterLogin: defaultURLAfterLogin,
 		urlAfterLogout:       urlAfterLogout,
-		profile:              UserProfile{Email: "testUser@some.domain"},
+		defaultUserProfile:   UserProfile{Email: "testUser@some.domain"},
 	}
 }
 
@@ -47,7 +47,13 @@ func (m *MockAuthenticator) CheckSession(next http.Handler) http.Handler {
 func (m *MockAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("MockCallbackHandler was called")
 
-	if err := m.session.StoreProfile(r.Context(), SessionKeyProfile, m.profile); err != nil {
+	user := m.defaultUserProfile
+	//for the mock login handler the caller can optionally supply a username as a request parameter
+	if userEmail := r.URL.Query().Get("userEmail"); userEmail != "" {
+		user = UserProfile{Email: userEmail}
+	}
+
+	if err := m.session.StoreProfile(r.Context(), SessionKeyProfile, user); err != nil {
 		http.Error(w, "", http.StatusInternalServerError)
 		log.Printf("failed to store %v to session : %v", SessionKeyProfile, err)
 		return
@@ -66,7 +72,14 @@ func (m *MockAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.Reque
 
 func (m *MockAuthenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Mock LoginHandler called,creating session")
-	if err := m.session.StoreProfile(r.Context(), SessionKeyProfile, m.profile); err != nil {
+
+	user := m.defaultUserProfile
+	//for the mock login handler the caller can optionally supply a username as a request parameter
+	if userEmail := r.URL.Query().Get("userEmail"); userEmail != "" {
+		user = UserProfile{Email: userEmail}
+	}
+
+	if err := m.session.StoreProfile(r.Context(), SessionKeyProfile, user); err != nil {
 		http.Error(w, "", http.StatusInternalServerError)
 		log.Printf("failed to store %v to session : %v", SessionKeyProfile, err)
 		return

@@ -3,4 +3,5 @@ generate:
   strict-server: true
   chi-server: true
   embedded-spec: true
+  client: true
 output: dish-server.gen.go

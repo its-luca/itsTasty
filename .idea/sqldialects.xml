@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="SqlDialectMappings">
+    <file url="file://$APPLICATION_CONFIG_DIR$/consoles/db/3b62af45-42f1-44c6-8c92-644048da05e4/console.sql" dialect="MariaDB" />
     <file url="file://$PROJECT_DIR$/pkg/api/adapters/dishRepo/mysql_schemas.go" dialect="MariaDB" />
-    <file url="PROJECT" dialect="MariaDB" />
+    <file url="PROJECT" dialect="PostgreSQL" />
   </component>
 </project>
