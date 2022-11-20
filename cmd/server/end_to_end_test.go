@@ -11,6 +11,7 @@ import (
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports/botAPI"
 	"itsTasty/pkg/api/ports/userAPI"
+	"itsTasty/pkg/testutils"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -25,12 +26,12 @@ func TestBasicVoteWorkflow(t *testing.T) {
 	//instantiate db backend
 	//
 
-	db, err := getPostgresIntegrationTestDB(globalDockerPool)
+	db, err := testutils.GlobalDockerPool.GetPostgresIntegrationTestDB()
 	if err != nil {
 		t.Fatalf("getPostgresIntegrationTestDB failed : %v", err)
 	}
 	defer func() {
-		if err := cleanup(globalDockerPool); err != nil {
+		if err := testutils.GlobalDockerPool.Cleanup(); err != nil {
 			t.Fatalf("failed to cleanup docker pool : %v", err)
 		}
 	}()
