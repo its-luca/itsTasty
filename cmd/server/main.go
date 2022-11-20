@@ -12,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/go-co-op/gocron"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	migrate "github.com/rubenv/sql-migrate"
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/sync/errgroup"
 	"itsTasty/pkg/api/adapters/dishRepo"
@@ -54,6 +56,11 @@ const (
 
 	//envVarDevCORS one URL that is allowed for CORS requests
 	envVarDevCORS = "DEV_CORS"
+
+	//envVarSessionLifetime is the maximum lifetime of the session cookie. Afterwards the user
+	//has to log in again
+	//see https://pkg.go.dev/time#ParseDuration for input format
+	envVarSessionLifetime = "SESSION_LIFETIME"
 )
 
 type config struct {
@@ -90,6 +97,9 @@ type config struct {
 
 	devMode bool
 	devCORS string
+
+	//sessionLifetime is the expiry time of the session cookie
+	sessionLifetime time.Duration
 }
 
 type application struct {
@@ -200,18 +210,32 @@ func parseConfig() (*config, error) {
 		cfg.devCORS = devCORS
 	}
 
+	if sessionLifetimeAsStr := os.Getenv(envVarSessionLifetime); sessionLifetimeAsStr == "" {
+		cfg.sessionLifetime = 7 * 24 * time.Hour
+		log.Printf("%s was not specified and defaults to : %v", envVarSessionLifetime, cfg.sessionLifetime)
+	} else {
+		sessionLifetime, err := time.ParseDuration(sessionLifetimeAsStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse value %v of %s to time duration : %v",
+				sessionLifetimeAsStr, envVarSessionLifetime, err)
+		}
+		cfg.sessionLifetime = sessionLifetime
+	}
 	cfg.listen = ":80"
 
 	return &cfg, nil
 }
 
-func newApplication(cfg *config) (*application, error) {
+type dishRepoFactoryFunc func() (domain.DishRepo, error)
+
+func newApplication(cfg *config, dishRepoFactory dishRepoFactoryFunc) (*application, error) {
 
 	//Build Session Storage
 
 	log.Printf("Building session storage...")
 	session := scs.New()
-	session.Lifetime = 36 * time.Hour
+	session.Lifetime = cfg.sessionLifetime
+	session.Cookie.Name = "its_tasty_session"
 	session.Cookie.Secure = true
 
 	if cfg.devMode {
@@ -322,16 +346,9 @@ func newApplication(cfg *config) (*application, error) {
 		return nil, fmt.Errorf("failed to schedule session refresh job : %v", err)
 	}
 
-	//Connect to db
-	db, err := connectToDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
+	repo, err := dishRepoFactory()
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect do db : %v", err)
-	}
-
-	//Build dish repo
-	repo, err := dishRepo.NewMysqlRepo(db)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build mysql dish repo : %v", err)
+		return nil, fmt.Errorf("failed to instantiate db backend : %v", err)
 	}
 
 	app := application{
@@ -351,13 +368,46 @@ func newApplication(cfg *config) (*application, error) {
 
 }
 
-// connectToDB connects to the db waiting some tiem for the db to come online before giving up
-func connectToDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.DB, error) {
+// connectToMariaDB connects to the db waiting some time for the db to come online before giving up
+func connectToMariaDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.DB, error) {
 
 	dsn := fmt.Sprintf("%v:%v@tcp(%v)/%v?parseTime=true", dbUser, dbPW, dbURL, dbName)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open dsn %v : %v", dsn, err)
+	}
+
+	log.Printf("Trying to connect to db...")
+	retries := 10
+	connected := false
+	for retries > 0 && !connected {
+		pingCtx, pingCancel := context.WithTimeout(ctx, 10*time.Second)
+		err := db.PingContext(pingCtx)
+		if err != nil {
+			log.Printf("Error connecting to db : %v", err)
+			log.Printf("%v retries remaining", retries)
+			retries -= 1
+			time.Sleep(3 * time.Second)
+		} else {
+			log.Printf("Connected to db")
+			connected = true
+		}
+		pingCancel()
+	}
+
+	if !connected {
+		return nil, fmt.Errorf("error connecting to db")
+	}
+
+	return db, nil
+}
+
+// connectToMariaDB connects to the db waiting some time for the db to come online before giving up
+func connectToPostgresDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.DB, error) {
+
+	db, err := sql.Open("pgx", fmt.Sprintf("postgres://%v:%v@%s/%s?sslmode=disable", dbUser, dbPW, dbURL, dbName))
+	if err != nil {
+		return nil, fmt.Errorf("sql.Open : %v", err)
 	}
 
 	log.Printf("Trying to connect to db...")
@@ -538,15 +588,31 @@ func main() {
 
 	log.SetFlags(log.Flags() | log.Llongfile)
 
-	log.Printf("Parsing config...")
+	log.Printf("Parsing Config...")
 	cfg, err := parseConfig()
 	if err != nil {
 		log.Printf("parseConfig : %v", err)
 		return
 	}
 
+	defaultDishRepoFactory := func() (domain.DishRepo, error) {
+		//Connect to db
+		db, err := connectToPostgresDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect do db : %v", err)
+		}
+
+		//Build dish repo
+		migrations := &migrate.FileMigrationSource{Dir: "/migrations/postgres"}
+		repo, err := dishRepo.NewPostgresRepo(db, migrations)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build mysql dish repo : %v", err)
+		}
+		return repo, nil
+	}
+
 	log.Printf("Building application...")
-	app, err := newApplication(cfg)
+	app, err := newApplication(cfg, defaultDishRepoFactory)
 	if err != nil {
 		log.Printf("newApplication : %v", err)
 		return

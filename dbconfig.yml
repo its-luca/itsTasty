@@ -1,0 +1,5 @@
+development:
+  dialect: postgres
+  datasource: dbname=${PSQL_DBNAME} sslmode=disable user=${PSQL_USER} password=${PSQL_PASSWORD}
+  dir: migrations/postgres
+  table: migrations

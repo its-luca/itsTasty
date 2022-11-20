@@ -75,7 +75,7 @@ type RateDishReqRating int
 
 // SearchDishByDateReq Request to look up all dishes served on a date optionally filtered by a location
 type SearchDishByDateReq struct {
-	// Date Date on which dishes must have been served. Format yyyy.mm.dd
+	// Date Date on which dishes must have been served. Format YYYY-MM-DD
 	Date openapi_types.Date `json:"date"`
 
 	// Location Location by which dishes must have been served
