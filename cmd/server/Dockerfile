@@ -49,6 +49,7 @@ RUN npm run build
 FROM --platform=$TARGETPLATFORM alpine:latest
 
 COPY --from=backend-builder /host-files/server /server
+COPY --from=backend-builder /host-files/migrations /migrations
 COPY --from=frontend-builder /host-files/build /frontend
 #setup timezone
 ENV TZ=Europe/Berlin

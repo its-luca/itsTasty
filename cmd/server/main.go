@@ -12,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/go-co-op/gocron"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	migrate "github.com/rubenv/sql-migrate"
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/sync/errgroup"
 	"itsTasty/pkg/api/adapters/dishRepo"
@@ -366,13 +368,46 @@ func newApplication(cfg *config, dishRepoFactory dishRepoFactoryFunc) (*applicat
 
 }
 
-// connectToDB connects to the db waiting some tiem for the db to come online before giving up
-func connectToDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.DB, error) {
+// connectToMariaDB connects to the db waiting some time for the db to come online before giving up
+func connectToMariaDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.DB, error) {
 
 	dsn := fmt.Sprintf("%v:%v@tcp(%v)/%v?parseTime=true", dbUser, dbPW, dbURL, dbName)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open dsn %v : %v", dsn, err)
+	}
+
+	log.Printf("Trying to connect to db...")
+	retries := 10
+	connected := false
+	for retries > 0 && !connected {
+		pingCtx, pingCancel := context.WithTimeout(ctx, 10*time.Second)
+		err := db.PingContext(pingCtx)
+		if err != nil {
+			log.Printf("Error connecting to db : %v", err)
+			log.Printf("%v retries remaining", retries)
+			retries -= 1
+			time.Sleep(3 * time.Second)
+		} else {
+			log.Printf("Connected to db")
+			connected = true
+		}
+		pingCancel()
+	}
+
+	if !connected {
+		return nil, fmt.Errorf("error connecting to db")
+	}
+
+	return db, nil
+}
+
+// connectToMariaDB connects to the db waiting some time for the db to come online before giving up
+func connectToPostgresDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.DB, error) {
+
+	db, err := sql.Open("pgx", fmt.Sprintf("postgres://%v:%v@%s/%s?sslmode=disable", dbUser, dbPW, dbURL, dbName))
+	if err != nil {
+		return nil, fmt.Errorf("sql.Open : %v", err)
 	}
 
 	log.Printf("Trying to connect to db...")
@@ -562,13 +597,14 @@ func main() {
 
 	defaultDishRepoFactory := func() (domain.DishRepo, error) {
 		//Connect to db
-		db, err := connectToDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
+		db, err := connectToPostgresDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect do db : %v", err)
 		}
 
 		//Build dish repo
-		repo, err := dishRepo.NewMysqlRepo(db)
+		migrations := &migrate.FileMigrationSource{Dir: "/migrations/postgres"}
+		repo, err := dishRepo.NewPostgresRepo(db, migrations)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build mysql dish repo : %v", err)
 		}
