@@ -136,19 +136,21 @@ export function DishVIew(props : DishViewProps) {
 
     //occurrenceString contains up to the two most recent occurrences or is set to "never"
     let occurrenceString : string;
+    //sort such that most recent serving is at index 0
+    dishData.recentOccurrences.sort((a, b) => moment(a).isBefore(moment(b)) ? 1 : -1)
+    const occurrenceFormatStr = "dd, DD.MM.YY"
     if( dishData.recentOccurrences.length === 0 ) {
         occurrenceString = "never"
     } else if (dishData.recentOccurrences.length === 1 ) {
         //occurrenceString = moment().subtract(moment(dishData.recentOccurrences[0])).humazinze();
-        const now = moment();
         const occurrence = moment(dishData.recentOccurrences[0]);
-        occurrenceString = moment.duration(occurrence.diff(now)).humanize() + " ago"
+        occurrenceString = occurrence.format(occurrenceFormatStr)
     } else { // >= 2
-        const now = moment();
         const o1 = moment(dishData.recentOccurrences[0]);
         const o2 = moment(dishData.recentOccurrences[1])
-        occurrenceString =  moment.duration(o1.diff(now)).humanize() + " ago and "
-            + moment.duration(o2.diff(now)).humanize() + " ago";
+
+        occurrenceString =  o1.format(occurrenceFormatStr) + " and "
+            + o2.format(occurrenceFormatStr);
     }
 
 
