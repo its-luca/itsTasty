@@ -50,7 +50,7 @@ func (p *PostgresRepo) finishTransaction(err error, tx *sql.Tx) error {
 }
 
 // getOrCreateUser is a helper functions that fetches the given user or creates it if it does not exist. Queries
-// are executed on the given executor allowing to embedd this into ongoing transactions
+// are executed on the given executor allowing to embed this into ongoing transactions
 func (p *PostgresRepo) getOrCreateUser(ctx context.Context, userEmail string, executor boil.ContextExecutor) (*sqlboilerPSQL.User, error) {
 
 	upsertUser := &sqlboilerPSQL.User{
