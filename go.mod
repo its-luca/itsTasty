@@ -8,7 +8,7 @@ require (
 	github.com/deepmap/oapi-codegen v1.12.2
 	github.com/friendsofgo/errors v0.9.2
 	github.com/getkin/kin-openapi v0.108.0
-	github.com/go-chi/chi/v5 v5.0.7
+	github.com/go-chi/chi/v5 v5.0.8
 	github.com/go-chi/cors v1.2.1
 	github.com/go-co-op/gocron v1.18.0
 	github.com/go-sql-driver/mysql v1.6.0
