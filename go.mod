@@ -12,7 +12,7 @@ require (
 	github.com/go-chi/cors v1.2.1
 	github.com/go-co-op/gocron v1.18.0
 	github.com/go-sql-driver/mysql v1.6.0
-	github.com/jackc/pgx/v5 v5.0.4
+	github.com/jackc/pgx/v5 v5.2.0
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/rubenv/sql-migrate v1.2.0
 	github.com/stretchr/testify v1.8.1
@@ -20,7 +20,7 @@ require (
 	github.com/volatiletech/strmangle v0.0.4
 	golang.org/x/crypto v0.3.0
 	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094
-	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde
+	golang.org/x/sync v0.0.0-20220923202941-7f9b1623fab7
 )
 
 require (
