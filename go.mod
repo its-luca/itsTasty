@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/alexedwards/scs/v2 v2.5.0
 	github.com/coreos/go-oidc v2.2.1+incompatible
-	github.com/deepmap/oapi-codegen v1.12.2
+	github.com/deepmap/oapi-codegen v1.12.4
 	github.com/friendsofgo/errors v0.9.2
 	github.com/getkin/kin-openapi v0.108.0
 	github.com/go-chi/chi/v5 v5.0.7
@@ -56,11 +56,11 @@ require (
 	github.com/sirupsen/logrus v1.9.0 // indirect
 	github.com/spf13/cast v1.4.1 // indirect
 	github.com/volatiletech/inflect v0.0.1 // indirect
-	golang.org/x/mod v0.6.0 // indirect
+	golang.org/x/mod v0.7.0 // indirect
 	golang.org/x/net v0.7.0 // indirect
 	golang.org/x/sys v0.5.0 // indirect
 	golang.org/x/text v0.7.0 // indirect
-	golang.org/x/tools v0.2.0 // indirect
+	golang.org/x/tools v0.3.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220411194840-2f41105eb62f // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
