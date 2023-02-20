@@ -3,6 +3,7 @@ import {ApiError, DefaultService, GetDishResp} from "./services/userAPI";
 import {useAuthContext} from "./AuthContext";
 import Typography from "@mui/material/Typography";
 import {
+    Link,
     Paper,
     Rating, Skeleton, Stack,
     Table,
@@ -177,12 +178,12 @@ export function SimpleDishView(props : SimpleDishViewProps) {
                     <TableBody>
                         <TableRow >
                             <TableCell  align="center" colSpan={2} >
-                                <Typography
+                                <Link
                                     component={RRLink}
                                     to={urlJoin('/dish',props.dishID.toString())}
                                     sx={{fontSize:"large",fontWeight:"bold",textAlign:"center"}} >
                                     {dishData.name}
-                                </Typography>
+                                </Link>
                             </TableCell>
                         </TableRow>
 
