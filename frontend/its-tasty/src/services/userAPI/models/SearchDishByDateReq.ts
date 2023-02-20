@@ -7,7 +7,7 @@
  */
 export type SearchDishByDateReq = {
     /**
-     * Date on which dishes must have been served. Format yyyy.mm.dd
+     * Date on which dishes must have been served. Format YYYY-MM-DD
      */
     date: string;
     /**
