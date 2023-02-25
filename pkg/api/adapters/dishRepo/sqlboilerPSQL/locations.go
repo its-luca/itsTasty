@@ -65,14 +65,17 @@ var LocationWhere = struct {
 
 // LocationRels is where relationship names are stored.
 var LocationRels = struct {
-	Dishes string
+	Dishes       string
+	MergedDishes string
 }{
-	Dishes: "Dishes",
+	Dishes:       "Dishes",
+	MergedDishes: "MergedDishes",
 }
 
 // locationR is where relationships are stored.
 type locationR struct {
-	Dishes DishSlice `boil:"Dishes" json:"Dishes" toml:"Dishes" yaml:"Dishes"`
+	Dishes       DishSlice       `boil:"Dishes" json:"Dishes" toml:"Dishes" yaml:"Dishes"`
+	MergedDishes MergedDishSlice `boil:"MergedDishes" json:"MergedDishes" toml:"MergedDishes" yaml:"MergedDishes"`
 }
 
 // NewStruct creates a new relationship struct
@@ -85,6 +88,13 @@ func (r *locationR) GetDishes() DishSlice {
 		return nil
 	}
 	return r.Dishes
+}
+
+func (r *locationR) GetMergedDishes() MergedDishSlice {
+	if r == nil {
+		return nil
+	}
+	return r.MergedDishes
 }
 
 // locationL is where Load methods for each relationship are stored.
@@ -390,6 +400,20 @@ func (o *Location) Dishes(mods ...qm.QueryMod) dishQuery {
 	return Dishes(queryMods...)
 }
 
+// MergedDishes retrieves all the merged_dish's MergedDishes with an executor.
+func (o *Location) MergedDishes(mods ...qm.QueryMod) mergedDishQuery {
+	var queryMods []qm.QueryMod
+	if len(mods) != 0 {
+		queryMods = append(queryMods, mods...)
+	}
+
+	queryMods = append(queryMods,
+		qm.Where("\"merged_dishes\".\"location_id\"=?", o.ID),
+	)
+
+	return MergedDishes(queryMods...)
+}
+
 // LoadDishes allows an eager lookup of values, cached into the
 // loaded structs of the objects. This is for a 1-M or N-M relationship.
 func (locationL) LoadDishes(ctx context.Context, e boil.ContextExecutor, singular bool, maybeLocation interface{}, mods queries.Applicator) error {
@@ -504,6 +528,120 @@ func (locationL) LoadDishes(ctx context.Context, e boil.ContextExecutor, singula
 	return nil
 }
 
+// LoadMergedDishes allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-M or N-M relationship.
+func (locationL) LoadMergedDishes(ctx context.Context, e boil.ContextExecutor, singular bool, maybeLocation interface{}, mods queries.Applicator) error {
+	var slice []*Location
+	var object *Location
+
+	if singular {
+		var ok bool
+		object, ok = maybeLocation.(*Location)
+		if !ok {
+			object = new(Location)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeLocation)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeLocation))
+			}
+		}
+	} else {
+		s, ok := maybeLocation.(*[]*Location)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeLocation)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeLocation))
+			}
+		}
+	}
+
+	args := make([]interface{}, 0, 1)
+	if singular {
+		if object.R == nil {
+			object.R = &locationR{}
+		}
+		args = append(args, object.ID)
+	} else {
+	Outer:
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &locationR{}
+			}
+
+			for _, a := range args {
+				if a == obj.ID {
+					continue Outer
+				}
+			}
+
+			args = append(args, obj.ID)
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	query := NewQuery(
+		qm.From(`merged_dishes`),
+		qm.WhereIn(`merged_dishes.location_id in ?`, args...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load merged_dishes")
+	}
+
+	var resultSlice []*MergedDish
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice merged_dishes")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results in eager load on merged_dishes")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for merged_dishes")
+	}
+
+	if len(mergedDishAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+	if singular {
+		object.R.MergedDishes = resultSlice
+		for _, foreign := range resultSlice {
+			if foreign.R == nil {
+				foreign.R = &mergedDishR{}
+			}
+			foreign.R.Location = object
+		}
+		return nil
+	}
+
+	for _, foreign := range resultSlice {
+		for _, local := range slice {
+			if local.ID == foreign.LocationID {
+				local.R.MergedDishes = append(local.R.MergedDishes, foreign)
+				if foreign.R == nil {
+					foreign.R = &mergedDishR{}
+				}
+				foreign.R.Location = local
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
 // AddDishes adds the given related objects to the existing relationships
 // of the location, optionally inserting them as new records.
 // Appends related to o.R.Dishes.
@@ -548,6 +686,59 @@ func (o *Location) AddDishes(ctx context.Context, exec boil.ContextExecutor, ins
 	for _, rel := range related {
 		if rel.R == nil {
 			rel.R = &dishR{
+				Location: o,
+			}
+		} else {
+			rel.R.Location = o
+		}
+	}
+	return nil
+}
+
+// AddMergedDishes adds the given related objects to the existing relationships
+// of the location, optionally inserting them as new records.
+// Appends related to o.R.MergedDishes.
+// Sets related.R.Location appropriately.
+func (o *Location) AddMergedDishes(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*MergedDish) error {
+	var err error
+	for _, rel := range related {
+		if insert {
+			rel.LocationID = o.ID
+			if err = rel.Insert(ctx, exec, boil.Infer()); err != nil {
+				return errors.Wrap(err, "failed to insert into foreign table")
+			}
+		} else {
+			updateQuery := fmt.Sprintf(
+				"UPDATE \"merged_dishes\" SET %s WHERE %s",
+				strmangle.SetParamNames("\"", "\"", 1, []string{"location_id"}),
+				strmangle.WhereClause("\"", "\"", 2, mergedDishPrimaryKeyColumns),
+			)
+			values := []interface{}{o.ID, rel.ID}
+
+			if boil.IsDebug(ctx) {
+				writer := boil.DebugWriterFrom(ctx)
+				fmt.Fprintln(writer, updateQuery)
+				fmt.Fprintln(writer, values)
+			}
+			if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+				return errors.Wrap(err, "failed to update foreign table")
+			}
+
+			rel.LocationID = o.ID
+		}
+	}
+
+	if o.R == nil {
+		o.R = &locationR{
+			MergedDishes: related,
+		}
+	} else {
+		o.R.MergedDishes = append(o.R.MergedDishes, related...)
+	}
+
+	for _, rel := range related {
+		if rel.R == nil {
+			rel.R = &mergedDishR{
 				Location: o,
 			}
 		} else {
