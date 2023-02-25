@@ -42,8 +42,8 @@ func runCommonDbTests(t *testing.T, factory repoFactory) {
 			TestFunc: testRepo_GetDishByDate,
 		},
 		{
-			Name:     "SetOrCreateRating",
-			TestFunc: test_SetOrCreateRating,
+			Name:     "UpdateMostRecentRating_and_GetRatings",
+			TestFunc: test_UpdateMostRecentRating_GetRatings,
 		},
 		{
 			Name:     "CreateMergedDish",
@@ -154,7 +154,7 @@ func testRepo_GetAllDishIDs(t *testing.T, repo domain.DishRepo) {
 
 }
 
-func test_SetOrCreateRating(t *testing.T, repo domain.DishRepo) {
+func test_UpdateMostRecentRating_GetRatings(t *testing.T, repo domain.DishRepo) {
 	//add dish
 	const sampleDishName = "sampleDish"
 	const sampleUserEmail = "test@use.er"
@@ -167,39 +167,92 @@ func test_SetOrCreateRating(t *testing.T, repo domain.DishRepo) {
 	// Run Test
 	//
 
-	//Note: Mysql does not seem to retain nano seconds. Thus, we have to round or time values to second
+	//Note: Mysql does not seem to retain nanoseconds. Thus, we have to round our time values to second
 	//to make "got want" comparisons work
 
-	//Initial call should create new rating
-	initialDishRating := domain.NewDishRating(sampleUserEmail, domain.FiveStars, roundToMysqlResolution(time.Now()))
-	isNew, err := repo.SetOrCreateRating(context.Background(), sampleUserEmail, sampleDishID, initialDishRating)
-	require.NoError(t, err)
-	require.True(t, isNew)
+	timeFirstRating := roundToMysqlResolution(time.Now())
+	timeSecondRating := timeFirstRating.Add(24 * time.Hour)
+	firstRating := domain.NewDishRating(sampleUserEmail, domain.FiveStars, timeFirstRating)
+	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
 
-	//Get the newly created rating
-	dishRating, err := repo.GetRating(context.Background(), sampleUserEmail, sampleDishID)
-	require.NoError(t, err)
-	require.Equal(t, initialDishRating, *dishRating)
+			require.Nilf(t, currentRating, "on first call to CreateOrUpdateRating \"currentRating\" should be nil")
 
-	//Second call should only change the rating
-	updatedDishRating := domain.NewDishRating(sampleUserEmail, domain.OneStar, roundToMysqlResolution(time.Now().Add(2*time.Second)))
-	isNew, err = repo.SetOrCreateRating(context.Background(), sampleUserEmail, sampleDishID, updatedDishRating)
+			updatedRating = &firstRating
+			createNew = true
+			err = nil
+			return
+		})
 	require.NoError(t, err)
-	require.False(t, isNew)
 
-	//Get the updated rating
-	dishRating, err = repo.GetRating(context.Background(), sampleUserEmail, sampleDishID)
+	//Get the newly created rating and check values
+	dishRatings, err := repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, false)
 	require.NoError(t, err)
-	require.Equal(t, updatedDishRating, *dishRating)
+	require.Equal(t, []domain.DishRating{firstRating}, dishRatings)
 
-	//Use GetAll to also check that there is only one rating
-	ratings, err := repo.GetAllRatingsForDish(context.Background(), sampleDishID)
+	//Create a second rating
+	secondRating := domain.NewDishRating(sampleUserEmail, domain.OneStar, timeSecondRating)
+	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
+
+			require.Equalf(t, firstRating, *currentRating, "on second call to CreateOrUpdateRating"+
+				"\"currentRating\" have the value of \"firstRating\"")
+
+			updatedRating = &secondRating
+			createNew = true
+			err = nil
+			return
+		})
 	require.NoError(t, err)
-	count := 0
-	for _, v := range ratings.Ratings() {
-		count += v
-	}
-	require.Equal(t, 1, count)
+
+	//GetRatings should return both ratings if "onlyMostRecent" is set to false
+	gotRatings, err := repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, false)
+	require.NoError(t, err)
+	require.Equal(t, []domain.DishRating{firstRating, secondRating}, gotRatings)
+
+	//GetRatings should return ONLY MOST RECENT (although there are now two ratings) since onyMostRecent is set to true
+	gotRatings, err = repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, true)
+	require.NoError(t, err)
+	require.Equal(t, []domain.DishRating{secondRating}, gotRatings)
+
+	//Update the most recent rating
+	updatedSecondRating := domain.NewDishRating(sampleUserEmail, domain.ThreeStars, timeSecondRating.Add(10*time.Minute))
+	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
+
+			updatedRating = &updatedSecondRating
+			createNew = false
+			err = nil
+			return
+		})
+	require.NoError(t, err)
+
+	//Fetch most recent rating and check for updated values
+	gotRatings, err = repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, true)
+	require.NoError(t, err)
+	require.Equal(t, []domain.DishRating{updatedSecondRating}, gotRatings)
+
+	//Check that no date is updated if we return nil in updateFN
+	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
+
+			updatedRating = nil
+			createNew = false
+			err = nil
+			return
+		})
+	require.NoError(t, err)
+
+	//Fetch most recent rating and check that values did not change
+	gotRatings, err = repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, true)
+	require.NoError(t, err)
+	require.Equal(t, []domain.DishRating{updatedSecondRating}, gotRatings)
+
+	//Check that there are only two ratings in total
+	gotRatings, err = repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, false)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(gotRatings))
+
 }
 
 func testRepo_UpdateMostRecentServing(t *testing.T, repo domain.DishRepo) {

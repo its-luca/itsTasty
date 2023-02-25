@@ -815,7 +815,7 @@ func (m *MysqlRepo) SetOrCreateRating(ctx context.Context, userEmail string, dis
 		if errors.Is(err, domain.ErrNotFound) {
 			createdRating = true
 		} else {
-			return false, fmt.Errorf("GetRating : %w", err)
+			return false, fmt.Errorf("GetRatings : %w", err)
 		}
 	}
 

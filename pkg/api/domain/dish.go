@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -113,6 +114,9 @@ func NewDishToday(name string, servedAt string) *Dish {
 }
 
 func NewDishFromDB(name, servedAt string, occurrences []time.Time) *Dish {
+	sort.Slice(occurrences, func(i, j int) bool {
+		return occurrences[i].Before(occurrences[j])
+	})
 	return &Dish{
 		Name:       name,
 		ServedAt:   servedAt,
@@ -120,9 +124,31 @@ func NewDishFromDB(name, servedAt string, occurrences []time.Time) *Dish {
 	}
 }
 
-// Occurrences returns all dates on which this dish was served
+// Occurrences returns all dates on which this dish was served in ascending order
+// (i.e. index 0 holds the oldest serving)
 func (d *Dish) Occurrences() []time.Time {
 	return d.occurences
+}
+
+// CreateNewRatingInsteadOfUpdating returns true if the user is allowed to create a new rating
+// Otherwise he must update his most recent rating. mostRecentRating may be nil
+func (d *Dish) CreateNewRatingInsteadOfUpdating(mostRecentRating *DishRating, newRating DishRating) bool {
+	//if there is no rating, create a new one
+	if mostRecentRating == nil {
+		return true
+	}
+
+	//otherwise, only create a new rating if there has been a new occurrence since the most recent rating
+
+	//newRating is on same day or earlier than mostRecentRating -> update
+	if OnSameDay(mostRecentRating.When, newRating.When) || newRating.When.Before(mostRecentRating.When) {
+		return false
+	}
+
+	//if we are here, newRating is at least on the next day after mostRecentRating. Check if there has been a new occurrence since
+	mostRecentOccurrence := d.Occurrences()[len(d.Occurrences())-1]
+	return mostRecentOccurrence.After(newRating.When) && !OnSameDay(mostRecentOccurrence, newRating.When)
+
 }
 
 func OnSameDay(t1, t2 time.Time) bool {

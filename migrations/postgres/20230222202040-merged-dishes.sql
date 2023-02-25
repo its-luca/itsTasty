@@ -22,6 +22,13 @@ alter table dish_ratings
     add column id serial primary key;
 
 -- +migrate Down
+
+-- delete all but the most recent rating. Otherwise we cannot revert to the old primary key as it would
+-- forbid multiple ratings by the same user
+delete from dish_ratings d1 where date <>
+    (select max(d2.date) from dish_ratings d2 where d1.user_id = d2.user_id);
+
+
 alter table dish_ratings
     drop constraint dish_ratings_pkey,
     drop column id,

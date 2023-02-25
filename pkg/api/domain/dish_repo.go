@@ -19,22 +19,17 @@ type DishRepo interface {
 	//for the location denoted by servedAt.
 	//The two bool results indicate whether a new dish and/or a new location was created.
 	//The int64 result is the id of the dish
-	//TODO: update for merged dishes
 	GetOrCreateDish(ctx context.Context, dishName string, servedAt string) (*Dish, bool, bool, int64, error)
 	//GetDishByName fetches the dish. The second result is the id of the dish
-	//TODO: update for merged dishes
 	GetDishByName(ctx context.Context, dishName, servedAt string) (dish *Dish, dishID int64, err error)
 	//GetDishByID fetches the dish
-	//TODO: update for merged dishes
 	GetDishByID(ctx context.Context, dishID int64) (dish *Dish, err error)
 
 	//GetDishByDate returns dishIDs for all dishes served at when optionally restricted to those served by the given location
-	//TODO: update for merged dishes
 	GetDishByDate(ctx context.Context, when time.Time, optionalLocation *string) ([]int64, error)
 
 	//UpdateMostRecentServing calls updateFN with the most recent serving for dishID (which may be nil)
 	//and adds a new serving if the function returns a non nil time value
-	//TODO: update for merged dishes
 	UpdateMostRecentServing(ctx context.Context, dishID int64,
 		updateFN func(currenMostRecent *time.Time) (*time.Time, error)) (err error)
 
@@ -74,14 +69,17 @@ type DishRepo interface {
 	    rating. Edge case: dishes served on same day
 	*/
 
-	//GetRating returns the rating of the user for the dish. Second result is the id of the rating
-	//TODO: update for merged dishes
-	GetRating(ctx context.Context, userEmail string, dishID int64) (*DishRating, error)
-	//SetOrCreateRating creates or overwrites the rating of the user for the given dish
-	//TODO: update for merged dishes
-	SetOrCreateRating(ctx context.Context, userEmail string, dishID int64, rating DishRating) (bool, error)
-	//GetAllRatingsForDish returns all ratings for the dish
-	//TODO: update for merged dishes
+	//GetRatings returns all ratings of the user for the dish, unless onlyMostRecent is true in which case only
+	//the most recent rating is returned. Second result is the id of the rating
+	GetRatings(ctx context.Context, userEmail string, dishID int64, onlyMostRecent bool) ([]DishRating, error)
+
+	//CreateOrUpdateRating calls updateFN with the most recent rating (or nil if no rating exists)
+	//If updateFN returns nil for rating, no changes are made. Otherwise, the returned value either replaces the
+	//most recent rating or is added as a new rating, depending on the value of createNew
+	CreateOrUpdateRating(ctx context.Context, userEmail string, dishID int64,
+		updateFN func(currentRating *DishRating) (updatedRating *DishRating, createNew bool, err error)) (err error)
+	//GetAllRatingsForDish returns all ratings for the dish. If a dish has multiple servings this means that
+	//there may be up to one rating per user per serving
 	GetAllRatingsForDish(ctx context.Context, dishID int64) (*DishRatings, error)
 
 	//DropRepo drops all tables related to this repo
