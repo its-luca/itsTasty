@@ -45,6 +45,22 @@ func runCommonDbTests(t *testing.T, factory repoFactory) {
 			Name:     "SetOrCreateRating",
 			TestFunc: test_SetOrCreateRating,
 		},
+		{
+			Name:     "CreateMergedDish",
+			TestFunc: testPostgresRepo_CreateMergedDish,
+		},
+		{
+			Name:     "AddDishToMergedDish",
+			TestFunc: testPostgresRepo_AddDishToMergedDish,
+		},
+		{
+			Name:     "RemoveDishFromMergedDish",
+			TestFunc: testPostgresRepo_RemoveDishFromMergedDish,
+		},
+		{
+			Name:     "DeleteMergedDish",
+			TestFunc: testPostgresRepo_DeleteMergedDish,
+		},
 	}
 
 	for i := range tests {
@@ -269,4 +285,196 @@ func testRepo_GetDishByDate(t *testing.T, repo domain.DishRepo) {
 	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision().Add(24*time.Hour), nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(gotDishIDs))
+}
+
+func testPostgresRepo_CreateMergedDish(t *testing.T, repo domain.DishRepo) {
+
+	//Setup : Create 2 dishes on same location
+	const locationA = "locationA"
+	const dishAName = "dishA"
+	const dishBName = "dishB"
+
+	_, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishAName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishBName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	//
+	// Run Test : Create merged dish, fetch dish, compare
+	//
+	const mergedDishName = "dishABMerged"
+	wantDishA := domain.NewDishToday(dishAName, locationA)
+	wantDishB := domain.NewDishToday(dishBName, locationA)
+
+	//Create new merged dish and insert it into db
+
+	mergedDish, err := domain.NewMergedDish(mergedDishName, wantDishA, wantDishB, []*domain.Dish{})
+	require.NoError(t, err)
+
+	wantMergedDishID, err := repo.CreateMergedDish(context.Background(), mergedDish)
+	require.NoError(t, err)
+
+	//Fetch merged dish from db and compare
+	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
+	require.Equalf(t, mergedDish, gotMergedDish, "fetched mergedDish does not match")
+
+}
+
+func testPostgresRepo_AddDishToMergedDish(t *testing.T, repo domain.DishRepo) {
+
+	//Setup : Create 3 dishes on same location
+	const locationA = "locationA"
+	const dishAName = "dishA"
+	const dishBName = "dishB"
+	const dishCName = "dishC"
+
+	_, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishAName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishBName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishCName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	//
+	// Run Test : Create merged dish, add additional dish to it, fetch and check
+	//
+	const mergedDishName = "dishABMerged"
+	wantDishA := domain.NewDishToday(dishAName, locationA)
+	wantDishB := domain.NewDishToday(dishBName, locationA)
+
+	//Create new merged dish and insert it into db
+
+	mergedDish, err := domain.NewMergedDish(mergedDishName, wantDishA, wantDishB, []*domain.Dish{})
+	require.NoError(t, err)
+
+	wantMergedDishID, err := repo.CreateMergedDish(context.Background(), mergedDish)
+	require.NoError(t, err)
+
+	//add additional dish
+
+	err = repo.AddDishToMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt, dishCName)
+	require.NoError(t, err)
+
+	//Fetch merged dish from db and compare
+	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
+	require.Equalf(t, []string{dishAName, dishBName, dishCName}, gotMergedDish.GetCondensedDishNames(),
+		"fetched mergedDish contain expected dishes")
+
+}
+
+func testPostgresRepo_RemoveDishFromMergedDish(t *testing.T, repo domain.DishRepo) {
+
+	//Setup : Create 3 dishes on same location
+	const locationA = "locationA"
+	const dishAName = "dishA"
+	const dishBName = "dishB"
+	const dishCName = "dishC"
+
+	_, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishAName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishBName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishCName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	//
+	// Run Test : Create merged dish with 3 dishes, remove one dish, fetch and check
+	//
+	const mergedDishName = "dishABMerged"
+	wantDishA := domain.NewDishToday(dishAName, locationA)
+	wantDishB := domain.NewDishToday(dishBName, locationA)
+	wantDishC := domain.NewDishToday(dishCName, locationA)
+
+	//Create new merged dish and insert it into db
+
+	mergedDish, err := domain.NewMergedDish(mergedDishName, wantDishA, wantDishB, []*domain.Dish{wantDishC})
+	require.NoError(t, err)
+
+	wantMergedDishID, err := repo.CreateMergedDish(context.Background(), mergedDish)
+	require.NoError(t, err)
+
+	//remove dish C
+
+	err = repo.RemoveDishFromMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt, dishCName)
+	require.NoError(t, err)
+
+	//Fetch merged dish from db and compare
+	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
+	require.Equalf(t, []string{dishAName, dishBName}, gotMergedDish.GetCondensedDishNames(),
+		"fetched mergedDish contain expected dishes")
+
+}
+
+func testPostgresRepo_DeleteMergedDish(t *testing.T, repo domain.DishRepo) {
+
+	//Setup : Create 2 dishes on same location
+	const locationA = "locationA"
+	const dishAName = "dishA"
+	const dishBName = "dishB"
+
+	_, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishAName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishBName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	//
+	// Run Test : Create merged dish, fetch dish, delete dish, fetch again
+	//
+	const mergedDishName = "dishABMerged"
+	wantDishA := domain.NewDishToday(dishAName, locationA)
+	wantDishB := domain.NewDishToday(dishBName, locationA)
+
+	//Create new merged dish and insert it into db
+
+	mergedDish, err := domain.NewMergedDish(mergedDishName, wantDishA, wantDishB, []*domain.Dish{})
+	require.NoError(t, err)
+
+	wantMergedDishID, err := repo.CreateMergedDish(context.Background(), mergedDish)
+	require.NoError(t, err)
+
+	//Fetch merged dish from db and compare
+	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
+	require.Equalf(t, mergedDish, gotMergedDish, "fetched mergedDish does not match")
+
+	//Delete merged dish
+	err = repo.DeleteMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+
+	//Try to fetch merged dish again. Expecting not found error
+	_, _, err = repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.ErrorIsf(t, err, domain.ErrNotFound, "expected not found error since we deleted the dish")
 }

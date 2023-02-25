@@ -8,11 +8,13 @@ var TableNames = struct {
 	DishRatings     string
 	Dishes          string
 	Locations       string
+	MergedDishes    string
 	Users           string
 }{
 	DishOccurrences: "dish_occurrences",
 	DishRatings:     "dish_ratings",
 	Dishes:          "dishes",
 	Locations:       "locations",
+	MergedDishes:    "merged_dishes",
 	Users:           "users",
 }

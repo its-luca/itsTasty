@@ -27,6 +27,7 @@ type DishRating struct {
 	UserID int       `boil:"user_id" json:"user_id" toml:"user_id" yaml:"user_id"`
 	Date   time.Time `boil:"date" json:"date" toml:"date" yaml:"date"`
 	Rating int       `boil:"rating" json:"rating" toml:"rating" yaml:"rating"`
+	ID     int       `boil:"id" json:"id" toml:"id" yaml:"id"`
 
 	R *dishRatingR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L dishRatingL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -37,11 +38,13 @@ var DishRatingColumns = struct {
 	UserID string
 	Date   string
 	Rating string
+	ID     string
 }{
 	DishID: "dish_id",
 	UserID: "user_id",
 	Date:   "date",
 	Rating: "rating",
+	ID:     "id",
 }
 
 var DishRatingTableColumns = struct {
@@ -49,11 +52,13 @@ var DishRatingTableColumns = struct {
 	UserID string
 	Date   string
 	Rating string
+	ID     string
 }{
 	DishID: "dish_ratings.dish_id",
 	UserID: "dish_ratings.user_id",
 	Date:   "dish_ratings.date",
 	Rating: "dish_ratings.rating",
+	ID:     "dish_ratings.id",
 }
 
 // Generated where
@@ -63,11 +68,13 @@ var DishRatingWhere = struct {
 	UserID whereHelperint
 	Date   whereHelpertime_Time
 	Rating whereHelperint
+	ID     whereHelperint
 }{
 	DishID: whereHelperint{field: "\"dish_ratings\".\"dish_id\""},
 	UserID: whereHelperint{field: "\"dish_ratings\".\"user_id\""},
 	Date:   whereHelpertime_Time{field: "\"dish_ratings\".\"date\""},
 	Rating: whereHelperint{field: "\"dish_ratings\".\"rating\""},
+	ID:     whereHelperint{field: "\"dish_ratings\".\"id\""},
 }
 
 // DishRatingRels is where relationship names are stored.
@@ -108,10 +115,10 @@ func (r *dishRatingR) GetUser() *User {
 type dishRatingL struct{}
 
 var (
-	dishRatingAllColumns            = []string{"dish_id", "user_id", "date", "rating"}
+	dishRatingAllColumns            = []string{"dish_id", "user_id", "date", "rating", "id"}
 	dishRatingColumnsWithoutDefault = []string{"dish_id", "user_id", "date", "rating"}
-	dishRatingColumnsWithDefault    = []string{}
-	dishRatingPrimaryKeyColumns     = []string{"dish_id", "user_id"}
+	dishRatingColumnsWithDefault    = []string{"id"}
+	dishRatingPrimaryKeyColumns     = []string{"id"}
 	dishRatingGeneratedColumns      = []string{}
 )
 
@@ -671,7 +678,7 @@ func (o *DishRating) SetDish(ctx context.Context, exec boil.ContextExecutor, ins
 		strmangle.SetParamNames("\"", "\"", 1, []string{"dish_id"}),
 		strmangle.WhereClause("\"", "\"", 2, dishRatingPrimaryKeyColumns),
 	)
-	values := []interface{}{related.ID, o.DishID, o.UserID}
+	values := []interface{}{related.ID, o.ID}
 
 	if boil.IsDebug(ctx) {
 		writer := boil.DebugWriterFrom(ctx)
@@ -718,7 +725,7 @@ func (o *DishRating) SetUser(ctx context.Context, exec boil.ContextExecutor, ins
 		strmangle.SetParamNames("\"", "\"", 1, []string{"user_id"}),
 		strmangle.WhereClause("\"", "\"", 2, dishRatingPrimaryKeyColumns),
 	)
-	values := []interface{}{related.ID, o.DishID, o.UserID}
+	values := []interface{}{related.ID, o.ID}
 
 	if boil.IsDebug(ctx) {
 		writer := boil.DebugWriterFrom(ctx)
@@ -762,7 +769,7 @@ func DishRatings(mods ...qm.QueryMod) dishRatingQuery {
 
 // FindDishRating retrieves a single record by ID with an executor.
 // If selectCols is empty Find will return all columns.
-func FindDishRating(ctx context.Context, exec boil.ContextExecutor, dishID int, userID int, selectCols ...string) (*DishRating, error) {
+func FindDishRating(ctx context.Context, exec boil.ContextExecutor, iD int, selectCols ...string) (*DishRating, error) {
 	dishRatingObj := &DishRating{}
 
 	sel := "*"
@@ -770,10 +777,10 @@ func FindDishRating(ctx context.Context, exec boil.ContextExecutor, dishID int, 
 		sel = strings.Join(strmangle.IdentQuoteSlice(dialect.LQ, dialect.RQ, selectCols), ",")
 	}
 	query := fmt.Sprintf(
-		"select %s from \"dish_ratings\" where \"dish_id\"=$1 AND \"user_id\"=$2", sel,
+		"select %s from \"dish_ratings\" where \"id\"=$1", sel,
 	)
 
-	q := queries.Raw(query, dishID, userID)
+	q := queries.Raw(query, iD)
 
 	err := q.Bind(ctx, exec, dishRatingObj)
 	if err != nil {
@@ -1125,7 +1132,7 @@ func (o *DishRating) Delete(ctx context.Context, exec boil.ContextExecutor) (int
 	}
 
 	args := queries.ValuesFromMapping(reflect.Indirect(reflect.ValueOf(o)), dishRatingPrimaryKeyMapping)
-	sql := "DELETE FROM \"dish_ratings\" WHERE \"dish_id\"=$1 AND \"user_id\"=$2"
+	sql := "DELETE FROM \"dish_ratings\" WHERE \"id\"=$1"
 
 	if boil.IsDebug(ctx) {
 		writer := boil.DebugWriterFrom(ctx)
@@ -1222,7 +1229,7 @@ func (o DishRatingSlice) DeleteAll(ctx context.Context, exec boil.ContextExecuto
 // Reload refetches the object from the database
 // using the primary keys with an executor.
 func (o *DishRating) Reload(ctx context.Context, exec boil.ContextExecutor) error {
-	ret, err := FindDishRating(ctx, exec, o.DishID, o.UserID)
+	ret, err := FindDishRating(ctx, exec, o.ID)
 	if err != nil {
 		return err
 	}
@@ -1261,16 +1268,16 @@ func (o *DishRatingSlice) ReloadAll(ctx context.Context, exec boil.ContextExecut
 }
 
 // DishRatingExists checks if the DishRating row exists.
-func DishRatingExists(ctx context.Context, exec boil.ContextExecutor, dishID int, userID int) (bool, error) {
+func DishRatingExists(ctx context.Context, exec boil.ContextExecutor, iD int) (bool, error) {
 	var exists bool
-	sql := "select exists(select 1 from \"dish_ratings\" where \"dish_id\"=$1 AND \"user_id\"=$2 limit 1)"
+	sql := "select exists(select 1 from \"dish_ratings\" where \"id\"=$1 limit 1)"
 
 	if boil.IsDebug(ctx) {
 		writer := boil.DebugWriterFrom(ctx)
 		fmt.Fprintln(writer, sql)
-		fmt.Fprintln(writer, dishID, userID)
+		fmt.Fprintln(writer, iD)
 	}
-	row := exec.QueryRowContext(ctx, sql, dishID, userID)
+	row := exec.QueryRowContext(ctx, sql, iD)
 
 	err := row.Scan(&exists)
 	if err != nil {
