@@ -84,14 +84,19 @@ func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishI
 	//Get Rating Of User for Dish
 	dbErrGroup.Go(func() error {
 		var err error
-		dishRatingOfUser, err = h.repo.GetRating(dbErrGroupCtx, userEmail, request.DishID)
+		var ratings []domain.DishRating
+		ratings, err = h.repo.GetRatings(dbErrGroupCtx, userEmail, request.DishID, true)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				dishRatingOfUser = nil
 				return nil
 			}
-			return fmt.Errorf("GetRating : %v", err)
+			if len(ratings) != 1 {
+				return fmt.Errorf("GetRatings returned empty result but no domain.ErrNotFoundError")
+			}
+			return fmt.Errorf("GetRatings : %v", err)
 		}
+		dishRatingOfUser = &ratings[0]
 		return nil
 	})
 
@@ -205,8 +210,23 @@ func (h *HttpServer) PostDishesDishID(ctx context.Context, request PostDishesDis
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 
-	if _, err := h.repo.SetOrCreateRating(dbCtx, userEmail, request.DishID, dishRating); err != nil {
-		log.Printf("SetRating for dishID %v by user %v : %v", request.DishID, userEmail, err)
+	dish, err := h.repo.GetDishByID(dbCtx, request.DishID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return PostDishesDishID404Response{}, nil
+		}
+		return PostDishesDishID500JSONResponse{}, nil
+	}
+
+	err = h.repo.CreateOrUpdateRating(dbCtx, userEmail, request.DishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
+
+			updatedRating = &dishRating
+			createNew = dish.CreateNewRatingInsteadOfUpdating(currentRating, *updatedRating)
+			err = nil
+			return
+		})
+	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return PostDishesDishID404Response{}, nil
 		}

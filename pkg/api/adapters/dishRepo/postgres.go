@@ -388,9 +388,9 @@ func (p *PostgresRepo) GetAllDishIDs(ctx context.Context) ([]int64, error) {
 	return ids, nil
 }
 
-func (p *PostgresRepo) GetRating(ctx context.Context, userEmail string, dishID int64) (*domain.DishRating, error) {
+func (p *PostgresRepo) GetRatings(ctx context.Context, userEmail string, dishID int64, onlyMostRecent bool) ([]domain.DishRating, error) {
 
-	dbRatings, err := sqlboilerPSQL.DishRatings(
+	query := []qm.QueryMod{
 		//join with users table
 		qm.InnerJoin(fmt.Sprintf("%s on %s = %s",
 			sqlboilerPSQL.TableNames.Users,
@@ -400,7 +400,17 @@ func (p *PostgresRepo) GetRating(ctx context.Context, userEmail string, dishID i
 		sqlboilerPSQL.UserWhere.Email.EQ(userEmail),
 		//filter for dish id
 		sqlboilerPSQL.DishRatingWhere.DishID.EQ(int(dishID)),
-	).One(ctx, p.db)
+	}
+
+	if onlyMostRecent {
+		query = append(query, qm.OrderBy(sqlboilerPSQL.DishRatingColumns.Date+" desc"))
+		query = append(query, qm.Limit(1))
+	}
+
+	//fetch all ratings of the user for the given dish
+	dbRatings, err := sqlboilerPSQL.DishRatings(
+		query...,
+	).All(ctx, p.db)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -409,12 +419,17 @@ func (p *PostgresRepo) GetRating(ctx context.Context, userEmail string, dishID i
 		return nil, fmt.Errorf("failed to query dish rating : %v", err)
 	}
 
-	domainDishRating, err := domain.NewDishRatingFromDB(userEmail, dbRatings.Rating, dbRatings.Date.Local())
-	if err != nil {
-		return nil, fmt.Errorf("failed to construct domain object from db data : %w", err)
+	//convert db data to domain data and return
+	domainDishRatings := make([]domain.DishRating, 0, len(dbRatings))
+	for _, v := range dbRatings {
+		domainRating, err := domain.NewDishRatingFromDB(userEmail, v.Rating, v.Date.Local())
+		if err != nil {
+			return nil, fmt.Errorf("failed to construct domain object from db data : %w", err)
+		}
+		domainDishRatings = append(domainDishRatings, domainRating)
 	}
 
-	return &domainDishRating, nil
+	return domainDishRatings, nil
 }
 
 func (p *PostgresRepo) setOrCreateRating(ctx context.Context, userEmail string, dishID int64, rating domain.DishRating) (isNew bool, err error) {
@@ -468,9 +483,107 @@ func (p *PostgresRepo) setOrCreateRating(ctx context.Context, userEmail string, 
 
 }
 
-func (p *PostgresRepo) SetOrCreateRating(ctx context.Context, userEmail string, dishID int64, rating domain.DishRating) (bool, error) {
+func (p *PostgresRepo) createRating(ctx context.Context, userEmail string, dishID int64, rating domain.DishRating, executor boil.ContextExecutor) (id int64, err error) {
+	dbUser, err := p.getOrCreateUser(ctx, userEmail, executor)
+	if err != nil {
+		err = fmt.Errorf("failed to get or create user : %v", err)
+		return
+	}
 
-	return p.setOrCreateRating(ctx, userEmail, dishID, rating)
+	dbRating := sqlboilerPSQL.DishRating{
+		DishID: int(dishID),
+		UserID: dbUser.ID,
+		Date:   rating.When,
+		Rating: int(rating.Value),
+	}
+
+	if insertErr := dbRating.Insert(ctx, executor, boil.Infer()); insertErr != nil {
+		err = fmt.Errorf("failed to insert new rating : %v", insertErr)
+		return
+	}
+	id = int64(dbRating.ID)
+	return
+}
+
+func (p *PostgresRepo) CreateOrUpdateRating(ctx context.Context, userEmail string, dishID int64,
+	updateFN func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error)) (err error) {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		err = fmt.Errorf("BeginTX : %w", err)
+		return
+	}
+	defer func() {
+		err = p.finishTransaction(err, tx)
+	}()
+
+	//get most recent rating and lock it for update
+	dbRating, err := sqlboilerPSQL.DishRatings(
+		//join with users table
+		qm.InnerJoin(fmt.Sprintf("%s on %s = %s",
+			sqlboilerPSQL.TableNames.Users,
+			sqlboilerPSQL.DishRatingTableColumns.UserID,
+			sqlboilerPSQL.UserTableColumns.ID)),
+		//filter for user email
+		sqlboilerPSQL.UserWhere.Email.EQ(userEmail),
+		//filter for dish id
+		sqlboilerPSQL.DishRatingWhere.DishID.EQ(int(dishID)),
+		//sort
+		qm.OrderBy(sqlboilerPSQL.DishRatingColumns.Date+" desc"),
+		//only most recent
+		qm.Limit(1),
+		qm.For("update"),
+	).One(ctx, tx)
+	haveEntry := true
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			err = fmt.Errorf("failed to fetch most recent rating : %v", err)
+			return
+
+		}
+		haveEntry = false
+	}
+
+	var oldRating *domain.DishRating
+	if haveEntry {
+		dr, newRatingErr := domain.NewDishRatingFromDB(userEmail, dbRating.Rating, dbRating.Date.Local())
+		if newRatingErr != nil {
+			err = fmt.Errorf("failed to create domain rating from db data : %w", newRatingErr)
+			return
+		}
+		oldRating = &dr
+	}
+	newRating, createNewRating, err := updateFN(oldRating)
+
+	//updateFN does not want to change anything
+	if newRating == nil {
+		return
+	}
+
+	if createNewRating {
+		//create new rating
+		_, createErr := p.createRating(ctx, userEmail, dishID, *newRating, tx)
+		if createErr != nil {
+			err = fmt.Errorf("failed to to create new rating %v : %w", *newRating, err)
+			return
+		}
+	} else {
+		//if we get here, we want to update the rating
+
+		//if we do not have an existing entry, it is an error to request to update it
+		if !haveEntry {
+			err = fmt.Errorf("updateFN requested to update entry but there is none")
+			return
+		}
+		dbRating.Rating = int(newRating.Value)
+		dbRating.Date = newRating.When
+		_, err = dbRating.Update(ctx, tx, boil.Infer())
+		if err != nil {
+			err = fmt.Errorf("failed to to update to new rating %v : %w", *newRating, err)
+			return
+		}
+	}
+
+	return
 }
 
 func (p *PostgresRepo) GetAllRatingsForDish(ctx context.Context, dishID int64) (*domain.DishRatings, error) {
