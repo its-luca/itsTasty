@@ -15,7 +15,7 @@ require (
 	github.com/jackc/pgx/v5 v5.3.0
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/rubenv/sql-migrate v1.2.0
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.2
 	github.com/volatiletech/sqlboiler/v4 v4.13.0
 	github.com/volatiletech/strmangle v0.0.4
 	golang.org/x/crypto v0.6.0
