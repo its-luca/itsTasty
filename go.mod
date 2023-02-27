@@ -19,7 +19,7 @@ require (
 	github.com/volatiletech/sqlboiler/v4 v4.13.0
 	github.com/volatiletech/strmangle v0.0.4
 	golang.org/x/crypto v0.6.0
-	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094
+	golang.org/x/oauth2 v0.5.0
 	golang.org/x/sync v0.1.0
 )
 
