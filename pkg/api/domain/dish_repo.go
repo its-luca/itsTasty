@@ -7,7 +7,6 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
-var ErrDishAlreadyMerged = errors.New("dish already part of merged dish")
 
 type DishRepo interface {
 
@@ -22,7 +21,7 @@ type DishRepo interface {
 	GetOrCreateDish(ctx context.Context, dishName string, servedAt string) (*Dish, bool, bool, int64, error)
 	//GetDishByName fetches the dish. The second result is the id of the dish
 	GetDishByName(ctx context.Context, dishName, servedAt string) (dish *Dish, dishID int64, err error)
-	//GetDishByID fetches the dish
+	//GetDishByID fetches the dish. Returns domain.ErrNotFound if dish could not be found
 	GetDishByID(ctx context.Context, dishID int64) (dish *Dish, err error)
 
 	//GetDishByDate returns dishIDs for all dishes served at when optionally restricted to those served by the given location
@@ -44,30 +43,21 @@ type DishRepo interface {
 	CreateMergedDish(ctx context.Context, dish *MergedDish) (int64, error)
 
 	GetMergedDish(ctx context.Context, name, servedAt string) (*MergedDish, int64, error)
+	GetMergedDishByID(ctx context.Context, id int64) (*MergedDish, error)
 
-	//AddDishToMergedDish adds the dish dishName to the merged dish mergedDishName
-	//If the dish is already part of another merged dish, error is set to ErrDishAlreadyMerged
-	AddDishToMergedDish(ctx context.Context, mergedDishName, servedAt, dishName string) error
-	//RemoveDishFromMergedDish removes the dish from the merged dish
-	//If the dish is not part of the merged dish, error is set to ErrNotFound
-	RemoveDishFromMergedDish(ctx context.Context, mergedDishName, servedAt, dishName string) error
 	//DeleteMergedDish removes all dish from the merged dish and deletes the merged dish entry
 	//(but not the individual dishes)
 	DeleteMergedDish(ctx context.Context, mergedDishName, servedAt string) error
+	DeleteMergedDishByID(ctx context.Context, mergedDishID int64) error
+
+	//UpdateMergedDishByID calls updateFN with the current value of the merged dish. If updateFN does not return an error
+	//the db entry is updated with the returned value
+	//Fails with domain.ErrNotFound if id is not found
+	UpdateMergedDishByID(ctx context.Context, id int64, updateFN func(current *MergedDish) (*MergedDish, error)) (err error)
 
 	//
 	// Manipulate DishRating struct
 	//
-
-	/*TODO:
-	 1) Dishes can have one rating per serving.
-		Rating a dish creates a new rating if there has been a new serving
-		since the last rating. Otherwise the old rating is updated
-		You cannot directly rate a merged dish. Instead changing a merged dish will always update the data of the most
-		recently served dish, contained in the merged dish. This makes unmerging easy
-	 2) When Merging two dishes, the most recent rating of all merged dishes becomes the one that is evaluated in the star
-	    rating. Edge case: dishes served on same day
-	*/
 
 	//GetRatings returns all ratings of the user for the dish, unless onlyMostRecent is true in which case only
 	//the most recent rating is returned. Second result is the id of the rating

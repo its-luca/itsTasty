@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/stretchr/testify/require"
@@ -22,66 +23,14 @@ import (
 
 func TestBasicVoteWorkflow(t *testing.T) {
 
-	//
-	//instantiate db backend
-	//
-
-	db, err := testutils.GlobalDockerPool.GetPostgresIntegrationTestDB()
-	if err != nil {
-		t.Fatalf("getPostgresIntegrationTestDB failed : %v", err)
-	}
-	defer func() {
-		if err := testutils.GlobalDockerPool.Cleanup(); err != nil {
-			t.Fatalf("failed to cleanup docker pool : %v", err)
-		}
-	}()
-
-	migrationSource := &migrate.FileMigrationSource{Dir: "../../migrations/postgres"}
-	repo, err := dishRepo.NewPostgresRepo(db, migrationSource)
-	require.NoError(t, err)
-	defer func() {
-		if err := repo.DropRepo(context.Background()); err != nil {
-			t.Errorf("Failed to cleanup repo : %v", err)
-		}
-	}()
-
-	dbFactory := func() (domain.DishRepo, error) {
-		return repo, nil
-	}
-
-	//
-	// Prepare config
-	//
-
-	config := config{
-		urlAfterLogin:   "https://localhost/welcome",
-		urlAfterLogout:  "https://localhost/login",
-		botAPIToken:     "testBotApiToken",
-		sessionSecret:   "testSessionSecret",
-		devMode:         true,
-		devCORS:         "https://localhost",
-		sessionLifetime: 10 * time.Minute,
-	}
-
-	app, err := newApplication(&config, dbFactory)
-	if err != nil {
-		t.Fatalf("Failed to istantiate app : %v", err)
-	}
-
-	//
-	// Setup go http test server
-	//
-
-	ts := httptest.NewTLSServer(app.router)
+	app, ts, cleanup, err := setupTestEnv()
 	defer ts.Close()
-
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts.Client().Jar = jar
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Fatalf("Failed to cleanup test env : %v", err)
+		}
+	}()
 	require.NoError(t, err)
-
 	//
 	// Start of actual test
 	// 1) Create two dishes -> check creation
@@ -119,7 +68,7 @@ func TestBasicVoteWorkflow(t *testing.T) {
 			DishName: dish1.name,
 			ServedAt: dish1.location},
 		func(ctx context.Context, req *http.Request) error {
-			req.Header.Set("X-API-KEY", config.botAPIToken)
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
 			return nil
 		})
 	require.NoError(t, err)
@@ -135,7 +84,7 @@ func TestBasicVoteWorkflow(t *testing.T) {
 			DishName: dish2.name,
 			ServedAt: dish2.location},
 		func(ctx context.Context, req *http.Request) error {
-			req.Header.Set("X-API-KEY", config.botAPIToken)
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
 			return nil
 		})
 	require.NoError(t, err)
@@ -165,7 +114,7 @@ func TestBasicVoteWorkflow(t *testing.T) {
 		context.Background(),
 		dish1.id,
 		func(ctx context.Context, req *http.Request) error {
-			req.Header.Set("X-API-KEY", config.botAPIToken)
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
 			return nil
 		})
 	require.NoError(t, err)
@@ -176,7 +125,7 @@ func TestBasicVoteWorkflow(t *testing.T) {
 		context.Background(),
 		dish2.id,
 		func(ctx context.Context, req *http.Request) error {
-			req.Header.Set("X-API-KEY", config.botAPIToken)
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
 			return nil
 		})
 	require.NoError(t, err)
@@ -223,7 +172,7 @@ func TestBasicVoteWorkflow(t *testing.T) {
 	for _i := 0; _i < 100; _i++ {
 		getDishResp, err = botApiClient.GetDishesDishIDWithResponse(context.Background(), dish1.id,
 			func(ctx context.Context, req *http.Request) error {
-				req.Header.Set("X-API-KEY", config.botAPIToken)
+				req.Header.Set("X-API-KEY", app.conf.botAPIToken)
 				return nil
 			})
 		require.NoError(t, err)
@@ -240,7 +189,7 @@ func TestBasicVoteWorkflow(t *testing.T) {
 				ServedAt: dish1.location,
 			},
 			func(ctx context.Context, req *http.Request) error {
-				req.Header.Set("X-API-KEY", config.botAPIToken)
+				req.Header.Set("X-API-KEY", app.conf.botAPIToken)
 				return nil
 			})
 		require.NoError(t, err)
@@ -250,6 +199,145 @@ func TestBasicVoteWorkflow(t *testing.T) {
 		require.Equal(t, createOrUpdateResp.JSON200.DishID, dish1.id)
 	}
 
+}
+
+func TestMergedDishCRUDOperations(t *testing.T) {
+	app, ts, cleanup, err := setupTestEnv()
+	defer ts.Close()
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Fatalf("Failed to cleanup test env : %v", err)
+		}
+	}()
+	require.NoError(t, err)
+
+	//
+	// Start of actual test
+	// 1) Create four dishes. 3 at Location A, one at location B
+	// 2) Create merged dish out of two of the dishes -> check creation
+	// 3) Add third dish to merged dish
+	// 4) Remove dish from merged dish
+	// 5) Delete the merged dish
+	//
+
+	botApiClient, err := botAPI.NewClientWithResponses(ts.URL+"/botAPI/v1/", botAPI.WithHTTPClient(ts.Client()))
+	require.NoError(t, err)
+
+	//
+	//create test dishes
+	//
+
+	type testDish struct {
+		name     string
+		location string
+		id       int64
+	}
+	dish1L1 := testDish{
+		name:     "Test Dish 1",
+		location: "Test Location 1",
+	}
+	dish2L1 := testDish{
+		name:     "Test Dish 2",
+		location: "Test Location 1",
+	}
+	dish3L1 := testDish{
+		name:     "Test Dish 3",
+		location: "Test Location 1",
+	}
+	dish1L2 := testDish{
+		name:     "Test Dish 4",
+		location: "Test Location 2",
+	}
+
+	testDishes := []*testDish{&dish1L1, &dish2L1, &dish3L1, &dish1L2}
+
+	for i, v := range testDishes {
+		resp, err := botApiClient.PostCreateOrUpdateDishWithResponse(
+			context.Background(),
+			botAPI.PostCreateOrUpdateDishJSONRequestBody{
+				DishName: v.name,
+				ServedAt: v.location},
+			func(ctx context.Context, req *http.Request) error {
+				req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+				return nil
+			})
+		require.NoError(t, err)
+		require.Equal(t, resp.StatusCode(), http.StatusOK)
+		//for the first and the last test dish, a new location should be created
+		require.Equal(t, i == 0 || i == 3, resp.JSON200.CreatedNewLocation)
+		require.True(t, resp.JSON200.CreatedNewDish)
+
+		v.id = resp.JSON200.DishID
+	}
+
+	//
+	// Create merged dish via user api
+	//
+	user1, err := newUserClient("testUser1@test.mail", ts)
+	require.NoError(t, err)
+
+	wantMergedDishName := "Merged Dish"
+	wantMergedDishIDsV1 := []int64{dish1L1.id, dish2L1.id}
+
+	jsonResp, err := user1.client.PostMergedDishesWithResponse(context.Background(),
+		userAPI.CreateMergedDishReq{
+			MergedDishes: wantMergedDishIDsV1,
+			Name:         wantMergedDishName,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, jsonResp.StatusCode())
+	mergedDishID := jsonResp.JSON200.MergedDishID
+
+	//try to create merged dish with dishes from different locations. SHOULD FAIL
+	resp, err := user1.client.PostMergedDishes(context.Background(),
+		userAPI.CreateMergedDishReq{
+			Name:         "Malformed merged dish with dishes from different locations",
+			MergedDishes: []int64{dish1L1.id, dish1L2.id},
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	//Add dish3L1 to merged dish
+	resp, err = user1.client.PatchMergedDishesMergedDishID(context.Background(), mergedDishID,
+		userAPI.MergedDishUpdateReq{
+			AddDishIDs:    &[]int64{dish3L1.id},
+			RemoveDishIDs: nil,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	//Check that dish was actually added
+	mergedDishResp, err := user1.client.GetMergedDishesMergedDishIDWithResponse(context.Background(), mergedDishID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, mergedDishResp.StatusCode())
+	require.ElementsMatch(t, []int64{dish1L1.id, dish2L1.id, dish3L1.id}, mergedDishResp.JSON200.ContainedDishIDs)
+
+	//Remove dish1L1 from merged dish
+	resp, err = user1.client.PatchMergedDishesMergedDishID(context.Background(), mergedDishID,
+		userAPI.MergedDishUpdateReq{
+			AddDishIDs:    nil,
+			RemoveDishIDs: &[]int64{dish1L1.id},
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	//Check that dish was actually removed
+	mergedDishResp, err = user1.client.GetMergedDishesMergedDishIDWithResponse(context.Background(), mergedDishID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, mergedDishResp.StatusCode())
+	require.ElementsMatch(t, []int64{dish2L1.id, dish3L1.id}, mergedDishResp.JSON200.ContainedDishIDs)
+
+	//Delete the merged dish
+	resp, err = user1.client.DeleteMergedDishesMergedDishID(context.Background(), mergedDishID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	//Check that the merged dish was actually removed
+	resp, err = user1.client.GetMergedDishesMergedDishID(context.Background(), mergedDishID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 type testUser struct {
@@ -318,4 +406,96 @@ func newUserClient(userEmail string, server *httptest.Server) (*testUser, error)
 		Email:  userEmail,
 		client: apiClient,
 	}, nil
+}
+
+// setupTestEnv prepares a new test environment. The caller must call the returned cleanup function
+// to terminate/free the resources allocated by this function. The caller must close ts once they are done with it
+func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() error, err error) {
+	//
+	//instantiate db backend
+	//
+
+	db, err := testutils.GlobalDockerPool.GetPostgresIntegrationTestDB()
+	if err != nil {
+		err = fmt.Errorf("getPostgresIntegrationTestDB failed : %v", err)
+		return
+	}
+
+	dockerCleanupFN := func() error {
+		if err := testutils.GlobalDockerPool.Cleanup(); err != nil {
+			return fmt.Errorf("failed to cleanup docker pool : %v", err)
+		}
+		return nil
+	}
+	defer func() {
+		if err != nil {
+			if cleanupErr := dockerCleanupFN(); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("failed to cleanup docker resources : %v", err))
+			}
+		}
+	}()
+
+	migrationSource := &migrate.FileMigrationSource{Dir: "../../migrations/postgres"}
+	repo, err := dishRepo.NewPostgresRepo(db, migrationSource)
+	if err != nil {
+		err = fmt.Errorf("NewPostgresRepo failed : %v", err)
+		return
+
+	}
+
+	dbFactory := func() (domain.DishRepo, error) {
+		return repo, nil
+	}
+
+	repoCleanupFN := func() error {
+		if err := repo.DropRepo(context.Background()); err != nil {
+			return fmt.Errorf("failed to drop repo : %v", err)
+		}
+		return nil
+	}
+	defer func() {
+		if err != nil {
+			if cleanupErr := repoCleanupFN(); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("failed to cleanup db repo : %v", err))
+			}
+		}
+	}()
+	//
+	// Prepare config
+	//
+
+	config := config{
+		urlAfterLogin:   "https://localhost/welcome",
+		urlAfterLogout:  "https://localhost/login",
+		botAPIToken:     "testBotApiToken",
+		sessionSecret:   "testSessionSecret",
+		devMode:         true,
+		devCORS:         "https://localhost",
+		sessionLifetime: 10 * time.Minute,
+	}
+
+	app, err = newApplication(&config, dbFactory)
+	if err != nil {
+		err = fmt.Errorf("failed to istantiate app : %v", err)
+		return
+	}
+
+	//
+	// Setup go http test server
+	//
+
+	ts = httptest.NewTLSServer(app.router)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create cookiejar : %v", err)
+	}
+	ts.Client().Jar = jar
+
+	cleanupFN = func() error {
+		repoErr := repoCleanupFN()
+		dockerErr := dockerCleanupFN()
+		return errors.Join(repoErr, dockerErr)
+	}
+	return app, ts, cleanupFN, nil
 }

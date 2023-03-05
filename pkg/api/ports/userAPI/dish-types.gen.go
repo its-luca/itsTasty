@@ -30,6 +30,21 @@ type BasicError struct {
 	What *string `json:"what,omitempty"`
 }
 
+// CreateMergedDishReq Request to create a new MergedDish
+type CreateMergedDishReq struct {
+	// MergedDishes Array of dish ids that should be merged. All dishes must be served at the same location \ and cannot be part of any other merged dishes.  At least two dishes must be provided
+	MergedDishes []int64 `json:"mergedDishes"`
+
+	// Name Name of the merged dish. May be equal to existing dishes but for a given \ location there may not be another merged dish with the same name.
+	Name string `json:"name"`
+}
+
+// CreateMergedDishResp Success response for MergedDish creation
+type CreateMergedDishResp struct {
+	// MergedDishID ID of the newly created merged dish
+	MergedDishID int64 `json:"mergedDishID"`
+}
+
 // GetAllDishesResponse Array with all known dish IDs
 type GetAllDishesResponse = []int64
 
@@ -63,6 +78,30 @@ type GetDishRespRatingOfUser int
 // GetUsersMeResp Information about the requesting user
 type GetUsersMeResp struct {
 	Email string `json:"email"`
+}
+
+// MergedDishManagementData Management Data for merged dish
+type MergedDishManagementData struct {
+	// ContainedDishIDs IDs dishes contained in the merged dish
+	ContainedDishIDs []int64 `json:"containedDishIDs"`
+
+	// ContainedDishNames Names of the dishes contained in the merged dish
+	ContainedDishNames []string `json:"containedDishNames"`
+
+	// Name Name of the merged dish
+	Name string `json:"name"`
+
+	// ServedAt Location the merged dish is served at
+	ServedAt string `json:"servedAt"`
+}
+
+// MergedDishUpdateReq Representation of a merged dish
+type MergedDishUpdateReq struct {
+	// AddDishIDs If present, these IDs are added to the merged dish.
+	AddDishIDs *[]int64 `json:"addDishIDs,omitempty"`
+
+	// RemoveDishIDs If present, these IDs are removed from the merged dish. At least two dish must remain. \ To delete a merge dish, use DELETE instead of PATCH
+	RemoveDishIDs *[]int64 `json:"removeDishIDs,omitempty"`
 }
 
 // RateDishReq Request to vote for a dish
@@ -105,6 +144,12 @@ type SearchDishResp struct {
 
 // PostDishesDishIDJSONRequestBody defines body for PostDishesDishID for application/json ContentType.
 type PostDishesDishIDJSONRequestBody = RateDishReq
+
+// PostMergedDishesJSONRequestBody defines body for PostMergedDishes for application/json ContentType.
+type PostMergedDishesJSONRequestBody = CreateMergedDishReq
+
+// PatchMergedDishesMergedDishIDJSONRequestBody defines body for PatchMergedDishesMergedDishID for application/json ContentType.
+type PatchMergedDishesMergedDishIDJSONRequestBody = MergedDishUpdateReq
 
 // PostSearchDishJSONRequestBody defines body for PostSearchDish for application/json ContentType.
 type PostSearchDishJSONRequestBody = SearchDishReq

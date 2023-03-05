@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/deepmap/oapi-codegen/pkg/types"
+	"github.com/sourcegraph/conc/iter"
 	"golang.org/x/sync/errgroup"
 	"itsTasty/pkg/api/domain"
 	"log"
@@ -34,6 +35,244 @@ const defaultDBTimeout = 5 * time.Second
 
 type HttpServer struct {
 	repo domain.DishRepo
+}
+
+func (h *HttpServer) GetMergedDishesMergedDishID(ctx context.Context, r GetMergedDishesMergedDishIDRequestObject) (GetMergedDishesMergedDishIDResponseObject, error) {
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+
+	//get merged dish
+
+	mergedDish, err := h.repo.GetMergedDishByID(dbCtx, r.MergedDishID)
+	if err != nil {
+		log.Printf("failed get merged dish %v : %v", r.MergedDishID, err)
+		if errors.Is(err, domain.ErrNotFound) {
+			return GetMergedDishesMergedDishID404Response{}, nil
+		}
+		return GetMergedDishesMergedDishID500Response{}, nil
+	}
+
+	//get id for dishes contained in merged dish. This is a convenience feature of the API
+
+	mapper := iter.Mapper[string, int64]{
+		MaxGoroutines: 3,
+	}
+	dishNames := mergedDish.GetCondensedDishNames()
+	dishIDs, err := mapper.MapErr(dishNames, func(dishName *string) (int64, error) {
+		_, dishID, err := h.repo.GetDishByName(dbCtx, *dishName, mergedDish.ServedAt)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get dish (name: %v, loation: %v) : %w", *dishName, mergedDish.ServedAt, err)
+		}
+		return dishID, nil
+	})
+	if err != nil {
+		log.Printf("failed get at least one dish for dishes %v served at %v : %v", dishNames, mergedDish.ServedAt, err)
+		return GetMergedDishesMergedDishID500Response{}, nil
+	}
+
+	//assemble response
+
+	resp := GetMergedDishesMergedDishID200JSONResponse{
+		ContainedDishIDs:   dishIDs,
+		ContainedDishNames: dishNames,
+		Name:               mergedDish.Name,
+		ServedAt:           mergedDish.ServedAt,
+	}
+
+	return resp, nil
+}
+
+func (h *HttpServer) PostMergedDishes(ctx context.Context, request PostMergedDishesRequestObject) (PostMergedDishesResponseObject, error) {
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+
+	if len(request.Body.MergedDishes) < 2 {
+		s := "You must provide at least two dish IDs"
+		return PostMergedDishes400JSONResponse{What: &s}, nil
+	}
+
+	//TODO: fetch in parallel. take a look at https://github.com/sourcegraph/conc/
+	//
+	// Fetch Resources
+	//
+
+	dishesForMerge := make([]*domain.Dish, 0, len(request.Body.MergedDishes))
+	for _, v := range request.Body.MergedDishes {
+		d, err := h.repo.GetDishByID(dbCtx, v)
+		if err != nil {
+			log.Printf("GetDishByID for id %v failed : %v", v, err)
+			if errors.Is(err, domain.ErrNotFound) {
+
+				s := fmt.Sprintf("dishID %v does not exist", v)
+				return PostMergedDishes400JSONResponse{What: &s}, nil
+			}
+			return PostMergedDishes500Response{}, nil
+		}
+
+		dishesForMerge = append(dishesForMerge, d)
+	}
+
+	//
+	// Check domain Logic
+	//
+
+	mergedDish, err := domain.NewMergedDish(request.Body.Name, dishesForMerge[0], dishesForMerge[1], dishesForMerge[2:])
+	if err != nil {
+		log.Printf("domain.NewMergedDish failed for request %v failed : %v", request.Body, err)
+		if errors.Is(err, domain.ErrNotOnSameLocation) {
+			s := "All dishes must be served at the same location"
+			return PostMergedDishes400JSONResponse{What: &s}, nil
+		}
+		return PostMergedDishes500Response{}, nil
+	}
+
+	//
+	// Success! Persist to backend
+	//
+	mergedDishID, err := h.repo.CreateMergedDish(dbCtx, mergedDish)
+	if err != nil {
+		log.Printf("repo.CreateMergedDish failed for  %v failed : %v", mergedDish, err)
+		if errors.Is(err, domain.ErrDishAlreadyMerged) {
+			s := "One of the dishes is already part of a merged dish"
+			return PostMergedDishes400JSONResponse{What: &s}, nil
+		}
+		return PostMergedDishes500Response{}, nil
+	}
+
+	return PostMergedDishes200JSONResponse{
+		MergedDishID: mergedDishID,
+	}, nil
+
+}
+
+func (h *HttpServer) DeleteMergedDishesMergedDishID(ctx context.Context, r DeleteMergedDishesMergedDishIDRequestObject) (DeleteMergedDishesMergedDishIDResponseObject, error) {
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+
+	err := h.repo.DeleteMergedDishByID(dbCtx, r.MergedDishID)
+	if err != nil {
+		log.Printf("Failed to delte merged dish %v : %v", r.MergedDishID, err)
+
+		if errors.Is(err, domain.ErrNotFound) {
+			return DeleteMergedDishesMergedDishID404Response{}, nil
+		}
+		return DeleteMergedDishesMergedDishID500Response{}, nil
+	}
+	return DeleteMergedDishesMergedDishID200Response{}, nil
+}
+
+func (h *HttpServer) PatchMergedDishesMergedDishID(ctx context.Context, request PatchMergedDishesMergedDishIDRequestObject) (PatchMergedDishesMergedDishIDResponseObject, error) {
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
+	defer dbCancel()
+
+	//
+	// Fetch dishes for adding/removing from merged dish
+	//
+
+	mapper := iter.Mapper[int64, *domain.Dish]{
+		//TODO: what is a reasonable value?
+		MaxGoroutines: 3,
+	}
+	addDishes := make([]*domain.Dish, 0)
+	if addDishIDs := request.Body.AddDishIDs; addDishIDs != nil {
+		//fetch dishes for adding
+		var err error
+		addDishes, err = mapper.MapErr(*addDishIDs, func(i *int64) (*domain.Dish, error) {
+			d, err := h.repo.GetDishByID(dbCtx, *i)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch dish id %v : %w", *i, err)
+			}
+			return d, nil
+		})
+		if err != nil {
+			log.Printf("failed to fetch dishes %v for adding to merged dish %v : %v", addDishIDs, request.MergedDishID, err)
+			if errors.Is(err, domain.ErrNotFound) {
+				s := "At least one of the provided dishes that should be added could not be found"
+				return PatchMergedDishesMergedDishID400JSONResponse{What: &s}, nil
+			}
+			return PatchMergedDishesMergedDishID500Response{}, nil
+		}
+	}
+
+	removeDishes := make([]*domain.Dish, 0)
+	if removeDishIDs := request.Body.RemoveDishIDs; removeDishIDs != nil {
+		//fetch dishes for removal
+		var err error
+		removeDishes, err = mapper.MapErr(*removeDishIDs, func(i *int64) (*domain.Dish, error) {
+			d, err := h.repo.GetDishByID(dbCtx, *i)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch dish id %v : %w", *i, err)
+			}
+			return d, nil
+		})
+		if err != nil {
+			log.Printf("failed to fetch dishes %v for removal from merged dish %v : %v", removeDishes, request.MergedDishID, err)
+			if errors.Is(err, domain.ErrNotFound) {
+				s := "At least one of the  dishes that should be removed could not be found"
+				return PatchMergedDishesMergedDishID400JSONResponse{What: &s}, nil
+			}
+			return PatchMergedDishesMergedDishID500Response{}, nil
+		}
+	}
+
+	//
+	// Update merged dish
+	//
+
+	//add dishes
+	err := h.repo.UpdateMergedDishByID(dbCtx, request.MergedDishID, func(current *domain.MergedDish) (*domain.MergedDish, error) {
+		for _, v := range addDishes {
+			if err := current.AddDish(v); err != nil {
+				return nil, fmt.Errorf("cannot add dish %v : %w", *v, err)
+			}
+		}
+
+		for _, v := range removeDishes {
+			if err := current.RemoveDish(v); err != nil {
+				return nil, fmt.Errorf("cannot remove dish %v  : %w", *v, err)
+			}
+		}
+
+		return current, nil
+	})
+	if err != nil {
+
+		log.Printf("UpdateMergedDishByID failed to add dishes %v to merged dish id %v : %v", request.MergedDishID, addDishes, err)
+		//common errors
+
+		if errors.Is(err, domain.ErrNotFound) {
+			return PatchMergedDishesMergedDishID404Response{}, nil
+		}
+
+		//add errors
+
+		if errors.Is(err, domain.ErrNotOnSameLocation) {
+			s := "at least one of the dishes is not served on the same location as the merged dish"
+			return PatchMergedDishesMergedDishID400JSONResponse{What: &s}, nil
+		}
+
+		if errors.Is(err, domain.ErrDishAlreadyMerged) {
+			s := "at least one of the dishes is already part of a merged dish"
+			return PatchMergedDishesMergedDishID400JSONResponse{What: &s}, nil
+		}
+
+		//remove errors
+
+		if errors.Is(err, domain.ErrDishNotPartOfMergedDish) {
+			s := "at least one of the dishes that should be removed is not part of the merged dish"
+			return PatchMergedDishesMergedDishID400JSONResponse{What: &s}, nil
+		}
+
+		if errors.Is(err, domain.ErrMergedDishNeedsAtLeastTwoDishes) {
+			s := "after removal, the merged dish would have less than two dishes left"
+			return PatchMergedDishesMergedDishID400JSONResponse{What: &s}, nil
+		}
+
+		//unexpected errors
+		return PatchMergedDishesMergedDishID500Response{}, nil
+	}
+
+	return PatchMergedDishesMergedDishID200Response{}, nil
 }
 
 func (h *HttpServer) PostSearchDishByDate(ctx context.Context, request PostSearchDishByDateRequestObject) (PostSearchDishByDateResponseObject, error) {

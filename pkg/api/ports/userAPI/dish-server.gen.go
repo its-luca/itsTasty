@@ -105,6 +105,22 @@ type ClientInterface interface {
 	// GetGetAllDishes request
 	GetGetAllDishes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PostMergedDishes request with any body
+	PostMergedDishesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostMergedDishes(ctx context.Context, body PostMergedDishesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteMergedDishesMergedDishID request
+	DeleteMergedDishesMergedDishID(ctx context.Context, mergedDishID int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetMergedDishesMergedDishID request
+	GetMergedDishesMergedDishID(ctx context.Context, mergedDishID int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchMergedDishesMergedDishID request with any body
+	PatchMergedDishesMergedDishIDWithBody(ctx context.Context, mergedDishID int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchMergedDishesMergedDishID(ctx context.Context, mergedDishID int64, body PatchMergedDishesMergedDishIDJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PostSearchDish request with any body
 	PostSearchDishWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -157,6 +173,78 @@ func (c *Client) PostDishesDishID(ctx context.Context, dishID int64, body PostDi
 
 func (c *Client) GetGetAllDishes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetGetAllDishesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostMergedDishesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostMergedDishesRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostMergedDishes(ctx context.Context, body PostMergedDishesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostMergedDishesRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteMergedDishesMergedDishID(ctx context.Context, mergedDishID int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteMergedDishesMergedDishIDRequest(c.Server, mergedDishID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetMergedDishesMergedDishID(ctx context.Context, mergedDishID int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetMergedDishesMergedDishIDRequest(c.Server, mergedDishID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchMergedDishesMergedDishIDWithBody(ctx context.Context, mergedDishID int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchMergedDishesMergedDishIDRequestWithBody(c.Server, mergedDishID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchMergedDishesMergedDishID(ctx context.Context, mergedDishID int64, body PatchMergedDishesMergedDishIDJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchMergedDishesMergedDishIDRequest(c.Server, mergedDishID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -335,6 +423,161 @@ func NewGetGetAllDishesRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewPostMergedDishesRequest calls the generic PostMergedDishes builder with application/json body
+func NewPostMergedDishesRequest(server string, body PostMergedDishesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostMergedDishesRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostMergedDishesRequestWithBody generates requests for PostMergedDishes with any type of body
+func NewPostMergedDishesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/mergedDishes/")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteMergedDishesMergedDishIDRequest generates requests for DeleteMergedDishesMergedDishID
+func NewDeleteMergedDishesMergedDishIDRequest(server string, mergedDishID int64) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "mergedDishID", runtime.ParamLocationPath, mergedDishID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/mergedDishes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetMergedDishesMergedDishIDRequest generates requests for GetMergedDishesMergedDishID
+func NewGetMergedDishesMergedDishIDRequest(server string, mergedDishID int64) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "mergedDishID", runtime.ParamLocationPath, mergedDishID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/mergedDishes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPatchMergedDishesMergedDishIDRequest calls the generic PatchMergedDishesMergedDishID builder with application/json body
+func NewPatchMergedDishesMergedDishIDRequest(server string, mergedDishID int64, body PatchMergedDishesMergedDishIDJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchMergedDishesMergedDishIDRequestWithBody(server, mergedDishID, "application/json", bodyReader)
+}
+
+// NewPatchMergedDishesMergedDishIDRequestWithBody generates requests for PatchMergedDishesMergedDishID with any type of body
+func NewPatchMergedDishesMergedDishIDRequestWithBody(server string, mergedDishID int64, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "mergedDishID", runtime.ParamLocationPath, mergedDishID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/mergedDishes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewPostSearchDishRequest calls the generic PostSearchDish builder with application/json body
 func NewPostSearchDishRequest(server string, body PostSearchDishJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -496,6 +739,22 @@ type ClientWithResponsesInterface interface {
 	// GetGetAllDishes request
 	GetGetAllDishesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetGetAllDishesResponse, error)
 
+	// PostMergedDishes request with any body
+	PostMergedDishesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostMergedDishesResponse, error)
+
+	PostMergedDishesWithResponse(ctx context.Context, body PostMergedDishesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostMergedDishesResponse, error)
+
+	// DeleteMergedDishesMergedDishID request
+	DeleteMergedDishesMergedDishIDWithResponse(ctx context.Context, mergedDishID int64, reqEditors ...RequestEditorFn) (*DeleteMergedDishesMergedDishIDResponse, error)
+
+	// GetMergedDishesMergedDishID request
+	GetMergedDishesMergedDishIDWithResponse(ctx context.Context, mergedDishID int64, reqEditors ...RequestEditorFn) (*GetMergedDishesMergedDishIDResponse, error)
+
+	// PatchMergedDishesMergedDishID request with any body
+	PatchMergedDishesMergedDishIDWithBodyWithResponse(ctx context.Context, mergedDishID int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchMergedDishesMergedDishIDResponse, error)
+
+	PatchMergedDishesMergedDishIDWithResponse(ctx context.Context, mergedDishID int64, body PatchMergedDishesMergedDishIDJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchMergedDishesMergedDishIDResponse, error)
+
 	// PostSearchDish request with any body
 	PostSearchDishWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSearchDishResponse, error)
 
@@ -574,6 +833,95 @@ func (r GetGetAllDishesResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetGetAllDishesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostMergedDishesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CreateMergedDishResp
+	JSON400      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r PostMergedDishesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostMergedDishesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteMergedDishesMergedDishIDResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteMergedDishesMergedDishIDResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteMergedDishesMergedDishIDResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetMergedDishesMergedDishIDResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *MergedDishManagementData
+}
+
+// Status returns HTTPResponse.Status
+func (r GetMergedDishesMergedDishIDResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetMergedDishesMergedDishIDResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PatchMergedDishesMergedDishIDResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *BasicError
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchMergedDishesMergedDishIDResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchMergedDishesMergedDishIDResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -682,6 +1030,58 @@ func (c *ClientWithResponses) GetGetAllDishesWithResponse(ctx context.Context, r
 		return nil, err
 	}
 	return ParseGetGetAllDishesResponse(rsp)
+}
+
+// PostMergedDishesWithBodyWithResponse request with arbitrary body returning *PostMergedDishesResponse
+func (c *ClientWithResponses) PostMergedDishesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostMergedDishesResponse, error) {
+	rsp, err := c.PostMergedDishesWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostMergedDishesResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostMergedDishesWithResponse(ctx context.Context, body PostMergedDishesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostMergedDishesResponse, error) {
+	rsp, err := c.PostMergedDishes(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostMergedDishesResponse(rsp)
+}
+
+// DeleteMergedDishesMergedDishIDWithResponse request returning *DeleteMergedDishesMergedDishIDResponse
+func (c *ClientWithResponses) DeleteMergedDishesMergedDishIDWithResponse(ctx context.Context, mergedDishID int64, reqEditors ...RequestEditorFn) (*DeleteMergedDishesMergedDishIDResponse, error) {
+	rsp, err := c.DeleteMergedDishesMergedDishID(ctx, mergedDishID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteMergedDishesMergedDishIDResponse(rsp)
+}
+
+// GetMergedDishesMergedDishIDWithResponse request returning *GetMergedDishesMergedDishIDResponse
+func (c *ClientWithResponses) GetMergedDishesMergedDishIDWithResponse(ctx context.Context, mergedDishID int64, reqEditors ...RequestEditorFn) (*GetMergedDishesMergedDishIDResponse, error) {
+	rsp, err := c.GetMergedDishesMergedDishID(ctx, mergedDishID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetMergedDishesMergedDishIDResponse(rsp)
+}
+
+// PatchMergedDishesMergedDishIDWithBodyWithResponse request with arbitrary body returning *PatchMergedDishesMergedDishIDResponse
+func (c *ClientWithResponses) PatchMergedDishesMergedDishIDWithBodyWithResponse(ctx context.Context, mergedDishID int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchMergedDishesMergedDishIDResponse, error) {
+	rsp, err := c.PatchMergedDishesMergedDishIDWithBody(ctx, mergedDishID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchMergedDishesMergedDishIDResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchMergedDishesMergedDishIDWithResponse(ctx context.Context, mergedDishID int64, body PatchMergedDishesMergedDishIDJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchMergedDishesMergedDishIDResponse, error) {
+	rsp, err := c.PatchMergedDishesMergedDishID(ctx, mergedDishID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchMergedDishesMergedDishIDResponse(rsp)
 }
 
 // PostSearchDishWithBodyWithResponse request with arbitrary body returning *PostSearchDishResponse
@@ -833,6 +1233,117 @@ func ParseGetGetAllDishesResponse(rsp *http.Response) (*GetGetAllDishesResponse,
 	return response, nil
 }
 
+// ParsePostMergedDishesResponse parses an HTTP response from a PostMergedDishesWithResponse call
+func ParsePostMergedDishesResponse(rsp *http.Response) (*PostMergedDishesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostMergedDishesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CreateMergedDishResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteMergedDishesMergedDishIDResponse parses an HTTP response from a DeleteMergedDishesMergedDishIDWithResponse call
+func ParseDeleteMergedDishesMergedDishIDResponse(rsp *http.Response) (*DeleteMergedDishesMergedDishIDResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteMergedDishesMergedDishIDResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetMergedDishesMergedDishIDResponse parses an HTTP response from a GetMergedDishesMergedDishIDWithResponse call
+func ParseGetMergedDishesMergedDishIDResponse(rsp *http.Response) (*GetMergedDishesMergedDishIDResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetMergedDishesMergedDishIDResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MergedDishManagementData
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchMergedDishesMergedDishIDResponse parses an HTTP response from a PatchMergedDishesMergedDishIDWithResponse call
+func ParsePatchMergedDishesMergedDishIDResponse(rsp *http.Response) (*PatchMergedDishesMergedDishIDResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchMergedDishesMergedDishIDResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BasicError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePostSearchDishResponse parses an HTTP response from a PostSearchDishWithResponse call
 func ParsePostSearchDishResponse(rsp *http.Response) (*PostSearchDishResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -944,6 +1455,18 @@ type ServerInterface interface {
 	// (GET /getAllDishes)
 	GetGetAllDishes(w http.ResponseWriter, r *http.Request)
 
+	// (POST /mergedDishes/)
+	PostMergedDishes(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /mergedDishes/{mergedDishID})
+	DeleteMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request, mergedDishID int64)
+
+	// (GET /mergedDishes/{mergedDishID})
+	GetMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request, mergedDishID int64)
+
+	// (PATCH /mergedDishes/{mergedDishID})
+	PatchMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request, mergedDishID int64)
+
 	// (POST /searchDish)
 	PostSearchDish(w http.ResponseWriter, r *http.Request)
 
@@ -1021,6 +1544,99 @@ func (siw *ServerInterfaceWrapper) GetGetAllDishes(w http.ResponseWriter, r *htt
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetGetAllDishes(w, r)
+	})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// PostMergedDishes operation middleware
+func (siw *ServerInterfaceWrapper) PostMergedDishes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostMergedDishes(w, r)
+	})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DeleteMergedDishesMergedDishID operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "mergedDishID" -------------
+	var mergedDishID int64
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "mergedDishID", runtime.ParamLocationPath, chi.URLParam(r, "mergedDishID"), &mergedDishID)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mergedDishID", Err: err})
+		return
+	}
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMergedDishesMergedDishID(w, r, mergedDishID)
+	})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// GetMergedDishesMergedDishID operation middleware
+func (siw *ServerInterfaceWrapper) GetMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "mergedDishID" -------------
+	var mergedDishID int64
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "mergedDishID", runtime.ParamLocationPath, chi.URLParam(r, "mergedDishID"), &mergedDishID)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mergedDishID", Err: err})
+		return
+	}
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMergedDishesMergedDishID(w, r, mergedDishID)
+	})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// PatchMergedDishesMergedDishID operation middleware
+func (siw *ServerInterfaceWrapper) PatchMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "mergedDishID" -------------
+	var mergedDishID int64
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "mergedDishID", runtime.ParamLocationPath, chi.URLParam(r, "mergedDishID"), &mergedDishID)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mergedDishID", Err: err})
+		return
+	}
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchMergedDishesMergedDishID(w, r, mergedDishID)
 	})
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1198,6 +1814,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/getAllDishes", wrapper.GetGetAllDishes)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/mergedDishes/", wrapper.PostMergedDishes)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/mergedDishes/{mergedDishID}", wrapper.DeleteMergedDishesMergedDishID)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/mergedDishes/{mergedDishID}", wrapper.GetMergedDishesMergedDishID)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/mergedDishes/{mergedDishID}", wrapper.PatchMergedDishesMergedDishID)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/searchDish", wrapper.PostSearchDish)
 	})
 	r.Group(func(r chi.Router) {
@@ -1345,6 +1973,188 @@ func (response GetGetAllDishes500JSONResponse) VisitGetGetAllDishesResponse(w ht
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PostMergedDishesRequestObject struct {
+	Body *PostMergedDishesJSONRequestBody
+}
+
+type PostMergedDishesResponseObject interface {
+	VisitPostMergedDishesResponse(w http.ResponseWriter) error
+}
+
+type PostMergedDishes200JSONResponse CreateMergedDishResp
+
+func (response PostMergedDishes200JSONResponse) VisitPostMergedDishesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostMergedDishes400JSONResponse BasicError
+
+func (response PostMergedDishes400JSONResponse) VisitPostMergedDishesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostMergedDishes401Response struct {
+}
+
+func (response PostMergedDishes401Response) VisitPostMergedDishesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type PostMergedDishes500Response struct {
+}
+
+func (response PostMergedDishes500Response) VisitPostMergedDishesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(500)
+	return nil
+}
+
+type DeleteMergedDishesMergedDishIDRequestObject struct {
+	MergedDishID int64 `json:"mergedDishID"`
+}
+
+type DeleteMergedDishesMergedDishIDResponseObject interface {
+	VisitDeleteMergedDishesMergedDishIDResponse(w http.ResponseWriter) error
+}
+
+type DeleteMergedDishesMergedDishID200Response struct {
+}
+
+func (response DeleteMergedDishesMergedDishID200Response) VisitDeleteMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type DeleteMergedDishesMergedDishID400JSONResponse BasicError
+
+func (response DeleteMergedDishesMergedDishID400JSONResponse) VisitDeleteMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteMergedDishesMergedDishID401Response struct {
+}
+
+func (response DeleteMergedDishesMergedDishID401Response) VisitDeleteMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type DeleteMergedDishesMergedDishID404Response struct {
+}
+
+func (response DeleteMergedDishesMergedDishID404Response) VisitDeleteMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type DeleteMergedDishesMergedDishID500Response struct {
+}
+
+func (response DeleteMergedDishesMergedDishID500Response) VisitDeleteMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(500)
+	return nil
+}
+
+type GetMergedDishesMergedDishIDRequestObject struct {
+	MergedDishID int64 `json:"mergedDishID"`
+}
+
+type GetMergedDishesMergedDishIDResponseObject interface {
+	VisitGetMergedDishesMergedDishIDResponse(w http.ResponseWriter) error
+}
+
+type GetMergedDishesMergedDishID200JSONResponse MergedDishManagementData
+
+func (response GetMergedDishesMergedDishID200JSONResponse) VisitGetMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetMergedDishesMergedDishID401Response struct {
+}
+
+func (response GetMergedDishesMergedDishID401Response) VisitGetMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type GetMergedDishesMergedDishID404Response struct {
+}
+
+func (response GetMergedDishesMergedDishID404Response) VisitGetMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type GetMergedDishesMergedDishID500Response struct {
+}
+
+func (response GetMergedDishesMergedDishID500Response) VisitGetMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(500)
+	return nil
+}
+
+type PatchMergedDishesMergedDishIDRequestObject struct {
+	MergedDishID int64 `json:"mergedDishID"`
+	Body         *PatchMergedDishesMergedDishIDJSONRequestBody
+}
+
+type PatchMergedDishesMergedDishIDResponseObject interface {
+	VisitPatchMergedDishesMergedDishIDResponse(w http.ResponseWriter) error
+}
+
+type PatchMergedDishesMergedDishID200Response struct {
+}
+
+func (response PatchMergedDishesMergedDishID200Response) VisitPatchMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type PatchMergedDishesMergedDishID400JSONResponse BasicError
+
+func (response PatchMergedDishesMergedDishID400JSONResponse) VisitPatchMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PatchMergedDishesMergedDishID401Response struct {
+}
+
+func (response PatchMergedDishesMergedDishID401Response) VisitPatchMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type PatchMergedDishesMergedDishID404Response struct {
+}
+
+func (response PatchMergedDishesMergedDishID404Response) VisitPatchMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type PatchMergedDishesMergedDishID500Response struct {
+}
+
+func (response PatchMergedDishesMergedDishID500Response) VisitPatchMergedDishesMergedDishIDResponse(w http.ResponseWriter) error {
+	w.WriteHeader(500)
+	return nil
+}
+
 type PostSearchDishRequestObject struct {
 	Body *PostSearchDishJSONRequestBody
 }
@@ -1457,6 +2267,18 @@ type StrictServerInterface interface {
 
 	// (GET /getAllDishes)
 	GetGetAllDishes(ctx context.Context, request GetGetAllDishesRequestObject) (GetGetAllDishesResponseObject, error)
+
+	// (POST /mergedDishes/)
+	PostMergedDishes(ctx context.Context, request PostMergedDishesRequestObject) (PostMergedDishesResponseObject, error)
+
+	// (DELETE /mergedDishes/{mergedDishID})
+	DeleteMergedDishesMergedDishID(ctx context.Context, request DeleteMergedDishesMergedDishIDRequestObject) (DeleteMergedDishesMergedDishIDResponseObject, error)
+
+	// (GET /mergedDishes/{mergedDishID})
+	GetMergedDishesMergedDishID(ctx context.Context, request GetMergedDishesMergedDishIDRequestObject) (GetMergedDishesMergedDishIDResponseObject, error)
+
+	// (PATCH /mergedDishes/{mergedDishID})
+	PatchMergedDishesMergedDishID(ctx context.Context, request PatchMergedDishesMergedDishIDRequestObject) (PatchMergedDishesMergedDishIDResponseObject, error)
 
 	// (POST /searchDish)
 	PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) (PostSearchDishResponseObject, error)
@@ -1581,6 +2403,122 @@ func (sh *strictHandler) GetGetAllDishes(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// PostMergedDishes operation middleware
+func (sh *strictHandler) PostMergedDishes(w http.ResponseWriter, r *http.Request) {
+	var request PostMergedDishesRequestObject
+
+	var body PostMergedDishesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PostMergedDishes(ctx, request.(PostMergedDishesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PostMergedDishes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PostMergedDishesResponseObject); ok {
+		if err := validResponse.VisitPostMergedDishesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("Unexpected response type: %T", response))
+	}
+}
+
+// DeleteMergedDishesMergedDishID operation middleware
+func (sh *strictHandler) DeleteMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request, mergedDishID int64) {
+	var request DeleteMergedDishesMergedDishIDRequestObject
+
+	request.MergedDishID = mergedDishID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMergedDishesMergedDishID(ctx, request.(DeleteMergedDishesMergedDishIDRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMergedDishesMergedDishID")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMergedDishesMergedDishIDResponseObject); ok {
+		if err := validResponse.VisitDeleteMergedDishesMergedDishIDResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("Unexpected response type: %T", response))
+	}
+}
+
+// GetMergedDishesMergedDishID operation middleware
+func (sh *strictHandler) GetMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request, mergedDishID int64) {
+	var request GetMergedDishesMergedDishIDRequestObject
+
+	request.MergedDishID = mergedDishID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMergedDishesMergedDishID(ctx, request.(GetMergedDishesMergedDishIDRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMergedDishesMergedDishID")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMergedDishesMergedDishIDResponseObject); ok {
+		if err := validResponse.VisitGetMergedDishesMergedDishIDResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("Unexpected response type: %T", response))
+	}
+}
+
+// PatchMergedDishesMergedDishID operation middleware
+func (sh *strictHandler) PatchMergedDishesMergedDishID(w http.ResponseWriter, r *http.Request, mergedDishID int64) {
+	var request PatchMergedDishesMergedDishIDRequestObject
+
+	request.MergedDishID = mergedDishID
+
+	var body PatchMergedDishesMergedDishIDJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchMergedDishesMergedDishID(ctx, request.(PatchMergedDishesMergedDishIDRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchMergedDishesMergedDishID")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchMergedDishesMergedDishIDResponseObject); ok {
+		if err := validResponse.VisitPatchMergedDishesMergedDishIDResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("Unexpected response type: %T", response))
+	}
+}
+
 // PostSearchDish operation middleware
 func (sh *strictHandler) PostSearchDish(w http.ResponseWriter, r *http.Request) {
 	var request PostSearchDishRequestObject
@@ -1670,32 +2608,45 @@ func (sh *strictHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
