@@ -398,7 +398,7 @@ func testPostgresRepo_AddDishToMergedDish(t *testing.T, repo domain.DishRepo) {
 	require.True(t, isNewDish)
 	require.False(t, isNewLocation)
 
-	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishCName, locationA)
+	dishC, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishCName, locationA)
 	require.NoError(t, err)
 	require.True(t, isNewDish)
 	require.False(t, isNewLocation)
@@ -420,14 +420,20 @@ func testPostgresRepo_AddDishToMergedDish(t *testing.T, repo domain.DishRepo) {
 
 	//add additional dish
 
-	err = repo.AddDishToMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt, dishCName)
+	err = repo.UpdateMergedDishByID(context.Background(), wantMergedDishID, func(current *domain.MergedDish) (*domain.MergedDish, error) {
+		if err := current.AddDish(dishC); err != nil {
+			return nil, err
+		}
+
+		return current, nil
+	})
 	require.NoError(t, err)
 
 	//Fetch merged dish from db and compare
 	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
 	require.NoError(t, err)
 	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
-	require.Equalf(t, []string{dishAName, dishBName, dishCName}, gotMergedDish.GetCondensedDishNames(),
+	require.ElementsMatch(t, []string{dishAName, dishBName, dishCName}, gotMergedDish.GetCondensedDishNames(),
 		"fetched mergedDish contain expected dishes")
 
 }
@@ -450,7 +456,7 @@ func testPostgresRepo_RemoveDishFromMergedDish(t *testing.T, repo domain.DishRep
 	require.True(t, isNewDish)
 	require.False(t, isNewLocation)
 
-	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishCName, locationA)
+	dishC, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishCName, locationA)
 	require.NoError(t, err)
 	require.True(t, isNewDish)
 	require.False(t, isNewLocation)
@@ -473,14 +479,19 @@ func testPostgresRepo_RemoveDishFromMergedDish(t *testing.T, repo domain.DishRep
 
 	//remove dish C
 
-	err = repo.RemoveDishFromMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt, dishCName)
+	err = repo.UpdateMergedDishByID(context.Background(), wantMergedDishID, func(current *domain.MergedDish) (*domain.MergedDish, error) {
+		if err := current.RemoveDish(dishC); err != nil {
+			return nil, err
+		}
+		return current, nil
+	})
 	require.NoError(t, err)
 
 	//Fetch merged dish from db and compare
 	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
 	require.NoError(t, err)
 	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
-	require.Equalf(t, []string{dishAName, dishBName}, gotMergedDish.GetCondensedDishNames(),
+	require.ElementsMatch(t, []string{dishAName, dishBName}, gotMergedDish.GetCondensedDishNames(),
 		"fetched mergedDish contain expected dishes")
 
 }
