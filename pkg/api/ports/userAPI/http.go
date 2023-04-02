@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/deepmap/oapi-codegen/pkg/types"
 	"github.com/sourcegraph/conc/iter"
-	"golang.org/x/sync/errgroup"
+	"github.com/sourcegraph/conc/pool"
 	"itsTasty/pkg/api/domain"
+	"itsTasty/pkg/api/ports"
 	"log"
 	"time"
 )
@@ -31,10 +31,38 @@ func GetUserEmailFromCTX(ctx context.Context) (string, error) {
 	return userEmail, nil
 }
 
+// TimeSource allows mock time when testing
+type TimeSource interface {
+	//Now returns the current local time.
+	Now() time.Time
+}
+
+// defaultTimeSource simply wraps time.Now()
+type defaultTimeSource struct {
+}
+
+func (d defaultTimeSource) Now() time.Time {
+	return time.Now()
+}
+
 const defaultDBTimeout = 5 * time.Second
 
 type HttpServer struct {
-	repo domain.DishRepo
+	repo       domain.DishRepo
+	timeSource TimeSource
+}
+
+func NewHttpServer(repo domain.DishRepo) *HttpServer {
+	return &HttpServer{repo: repo, timeSource: defaultTimeSource{}}
+}
+
+type HttpServerFactory func(repo domain.DishRepo) *HttpServer
+
+func NewHttpServerCustomTime(repo domain.DishRepo, timeSource TimeSource) *HttpServer {
+	return &HttpServer{
+		repo:       repo,
+		timeSource: timeSource,
+	}
 }
 
 func (h *HttpServer) GetMergedDishesMergedDishID(ctx context.Context, r GetMergedDishesMergedDishIDRequestObject) (GetMergedDishesMergedDishIDResponseObject, error) {
@@ -82,6 +110,15 @@ func (h *HttpServer) GetMergedDishesMergedDishID(ctx context.Context, r GetMerge
 	return resp, nil
 }
 
+// userFacingDishNotExistsErr helper err to generate error messages for NotFound/400 http error
+type userFacingDishNotExistsErr struct {
+	dishID int64
+}
+
+func (u userFacingDishNotExistsErr) Error() string {
+	return fmt.Sprintf("Dish with id %v does not exist", u.dishID)
+}
+
 func (h *HttpServer) PostMergedDishes(ctx context.Context, request PostMergedDishesRequestObject) (PostMergedDishesResponseObject, error) {
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
@@ -91,25 +128,30 @@ func (h *HttpServer) PostMergedDishes(ctx context.Context, request PostMergedDis
 		return PostMergedDishes400JSONResponse{What: &s}, nil
 	}
 
-	//TODO: fetch in parallel. take a look at https://github.com/sourcegraph/conc/
 	//
 	// Fetch Resources
 	//
 
-	dishesForMerge := make([]*domain.Dish, 0, len(request.Body.MergedDishes))
-	for _, v := range request.Body.MergedDishes {
-		d, err := h.repo.GetDishByID(dbCtx, v)
+	mapper := iter.Mapper[int64, *domain.Dish]{}
+	dishesForMerge, err := mapper.MapErr(request.Body.MergedDishes, func(i *int64) (*domain.Dish, error) {
+		d, err := h.repo.GetDishByID(dbCtx, *i)
 		if err != nil {
-			log.Printf("GetDishByID for id %v failed : %v", v, err)
+			log.Printf("GetDishByID for id %v failed : %v", *i, err)
 			if errors.Is(err, domain.ErrNotFound) {
 
-				s := fmt.Sprintf("dishID %v does not exist", v)
-				return PostMergedDishes400JSONResponse{What: &s}, nil
+				return nil, userFacingDishNotExistsErr{*i}
 			}
-			return PostMergedDishes500Response{}, nil
+			return nil, fmt.Errorf("GetDishByID failed : %v", err)
 		}
-
-		dishesForMerge = append(dishesForMerge, d)
+		return d, nil
+	})
+	if err != nil {
+		var notFoundErr userFacingDishNotExistsErr
+		if errors.As(err, &notFoundErr) {
+			s := notFoundErr.Error()
+			return PostMergedDishes400JSONResponse{What: &s}, nil
+		}
+		return PostMergedDishes500Response{}, nil
 	}
 
 	//
@@ -169,10 +211,7 @@ func (h *HttpServer) PatchMergedDishesMergedDishID(ctx context.Context, request 
 	// Fetch dishes for adding/removing from merged dish
 	//
 
-	mapper := iter.Mapper[int64, *domain.Dish]{
-		//TODO: what is a reasonable value?
-		MaxGoroutines: 3,
-	}
+	mapper := iter.Mapper[int64, *domain.Dish]{}
 	addDishes := make([]*domain.Dish, 0)
 	if addDishIDs := request.Body.AddDishIDs; addDishIDs != nil {
 		//fetch dishes for adding
@@ -298,8 +337,16 @@ func (h *HttpServer) GetUsersMe(ctx context.Context, _ GetUsersMeRequestObject) 
 	return GetUsersMe200JSONResponse{Email: userEmail}, nil
 }
 
-func NewHttpServer(repo domain.DishRepo) *HttpServer {
-	return &HttpServer{repo: repo}
+func fetchMostRecentUserRating(ctx context.Context, repo domain.DishRepo, userEmail string, dishID int64) (*domain.DishRating, error) {
+	ratings, err := repo.GetRatings(ctx, userEmail, dishID, true)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("GetRatings : %v", err)
+	}
+
+	return &ratings[0], nil
 }
 
 func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishIDRequestObject) (GetDishesDishIDResponseObject, error) {
@@ -311,115 +358,40 @@ func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishI
 
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
-	dbErrGroup, dbErrGroupCtx := errgroup.WithContext(dbCtx)
 
-	//Fill the following vars with background jobs
-	var dishRatingOfUser *domain.DishRating
-	var dish *domain.Dish
-	var dishRatings *domain.DishRatings
-	dishNotFound := false
-	dishRatingsNotFound := false
+	p := pool.New().WithContext(dbCtx).WithCancelOnError()
 
-	//Get Rating Of User for Dish
-	dbErrGroup.Go(func() error {
+	var basicDishData *ports.BasicDishReply
+	var mostRecentUserRating *domain.DishRating
+
+	p.Go(func(ctx context.Context) error {
 		var err error
-		var ratings []domain.DishRating
-		ratings, err = h.repo.GetRatings(dbErrGroupCtx, userEmail, request.DishID, true)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				dishRatingOfUser = nil
-				return nil
-			}
-			if len(ratings) != 1 {
-				return fmt.Errorf("GetRatings returned empty result but no domain.ErrNotFoundError")
-			}
-			return fmt.Errorf("GetRatings : %v", err)
-		}
-		dishRatingOfUser = &ratings[0]
-		return nil
+		basicDishData, err = ports.FetchBasicDishData(dbCtx, h.repo, request.DishID)
+		return err
+	})
+	p.Go(func(ctx context.Context) error {
+		var err error
+		mostRecentUserRating, err = fetchMostRecentUserRating(dbCtx, h.repo, userEmail, request.DishID)
+		return err
 	})
 
-	//Get all Ratings for Dish
-	dbErrGroup.Go(func() error {
-		var err error
-		dishRatings, err = h.repo.GetAllRatingsForDish(dbErrGroupCtx, request.DishID)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				dishRatingsNotFound = true
-				return nil
-			}
-			return fmt.Errorf("GetAllRatingsForDish : %v", err)
-		}
-		return nil
-	})
-
-	//Get dish
-	dbErrGroup.Go(func() error {
-		var err error
-		dish, err = h.repo.GetDishByID(dbErrGroupCtx, request.DishID)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				dishNotFound = true
-			}
-			return fmt.Errorf("GetDishByID : %v", err)
-		}
-		return nil
-	})
-
-	//Wait for all jobs and check if there was an error
-	err = dbErrGroup.Wait()
-	if err != nil {
-		log.Printf("Job in errgroup failed : %v", err)
-		if dishNotFound {
-			return GetDishesDishID404Response{}, nil
-		}
-		//N.B. that the dish was found
-		if dishRatingsNotFound {
-			log.Printf("Did not find dish ratings allthough dish exists")
-			return GetDishesDishID500JSONResponse{}, nil
-		}
+	if err := p.Wait(); err != nil {
+		log.Printf("failed to fetch data for reply : %v", err)
 		return GetDishesDishID500JSONResponse{}, nil
 	}
 
-	ratings := make(map[string]int)
-	for k, v := range dishRatings.Ratings() {
-		ratings[fmt.Sprintf("%v", k)] = v
-	}
-
-	const maxOccurencesInAnswer = 10
-	occurences := dish.Occurrences()
-	occurenceCountForResponse := maxOccurencesInAnswer
-	if maxOccurencesInAnswer > len(occurences) {
-		occurenceCountForResponse = len(occurences)
-	}
-	recentOccurrences := make([]types.Date, 0, occurenceCountForResponse)
-	for i := range occurences {
-		recentOccurrences = append(recentOccurrences, types.Date{Time: occurences[i]})
-	}
-
 	response := GetDishesDishID200JSONResponse{
-		AvgRating:         nil, //updated below if data is available
-		Name:              dish.Name,
-		ServedAt:          dish.ServedAt,
-		OccurrenceCount:   len(dish.Occurrences()),
+		AvgRating:         basicDishData.AvgRating, //updated below if data is available
+		Name:              basicDishData.Name,
+		ServedAt:          basicDishData.ServedAt,
+		OccurrenceCount:   basicDishData.OccurrenceCount,
 		RatingOfUser:      nil, //updated below if data is available
-		Ratings:           ratings,
-		RecentOccurrences: recentOccurrences,
+		Ratings:           basicDishData.Ratings,
+		RecentOccurrences: basicDishData.RecentOccurrences,
 	}
 
-	avgRating, err := dishRatings.AverageRating()
-	if err != nil {
-		if !errors.Is(err, domain.ErrNoVotes) {
-			log.Printf("dishRatings.AverageRating : %v", err)
-			return GetDishesDishID500JSONResponse{}, nil
-		}
-		//ErrNoVotes is fine, we simply don't add the average rating to the result
-	} else {
-		response.AvgRating = &avgRating
-	}
-
-	if dishRatingOfUser != nil {
-		v := GetDishRespRatingOfUser(dishRatingOfUser.Value)
+	if mostRecentUserRating != nil {
+		v := GetDishRespRatingOfUser(mostRecentUserRating.Value)
 		response.RatingOfUser = &v
 	}
 
@@ -441,9 +413,9 @@ func (h *HttpServer) PostDishesDishID(ctx context.Context, request PostDishesDis
 	}
 
 	dishRating := domain.DishRating{
-		Who:   userEmail,
-		Value: rating,
-		When:  time.Now(),
+		Who:        userEmail,
+		Value:      rating,
+		RatingWhen: h.timeSource.Now(),
 	}
 
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
@@ -492,20 +464,65 @@ func (h *HttpServer) GetGetAllDishes(ctx context.Context, _ GetGetAllDishesReque
 func (h *HttpServer) PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) (PostSearchDishResponseObject, error) {
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
-	_, dishID, err := h.repo.GetDishByName(dbCtx, request.Body.DishName, request.Body.ServedAt)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			return PostSearchDish200JSONResponse{
-				DishName:  request.Body.DishName,
-				FoundDish: false,
-			}, nil
+
+	//Search both merged dishes and dishes for the given name + location combination
+	//For a merged dish, return the id of the most recently served dish
+	//Prefer hits on merged dishes, as they are allowed to shadow their contained dishes by having the same
+	//name as one of them
+
+	p := pool.New().WithContext(dbCtx)
+
+	var dishIDFromMergedDish *int64
+	p.Go(func(ctx context.Context) error {
+		_, mergedDishID, err := h.repo.GetMergedDish(ctx, request.Body.DishName, request.Body.ServedAt)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return nil
+			}
+			return err
 		}
+		_, idMostRecentDish, err := h.repo.GetMostRecentDishForMergedDish(ctx, mergedDishID)
+		if err != nil {
+			return fmt.Errorf("found matching merged dish but failed to get most recently served dish : %v", err)
+		}
+		*dishIDFromMergedDish = idMostRecentDish
+		return nil
+	})
+
+	var dishID *int64
+	p.Go(func(ctx context.Context) error {
+		_, id, err := h.repo.GetDishByName(dbCtx, request.Body.DishName, request.Body.ServedAt)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return nil
+			}
+			return err
+		}
+		*dishID = id
+		return nil
+	})
+
+	if err := p.Wait(); err != nil {
 		log.Printf("GetDishByName for %v: %v", request.Body.DishName, err)
 		return PostSearchDish500JSONResponse{}, nil
 	}
 
+	if dishIDFromMergedDish == nil && dishID == nil {
+		return PostSearchDish200JSONResponse{
+			DishName:  request.Body.DishName,
+			FoundDish: false,
+		}, nil
+	}
+
+	var resultDishID *int64
+	if dishIDFromMergedDish != nil {
+		resultDishID = dishIDFromMergedDish
+	} else {
+		resultDishID = dishID
+	}
+
 	return PostSearchDish200JSONResponse{
-		DishID:    &dishID,
+		DishID:    resultDishID,
 		DishName:  request.Body.DishName,
 		FoundDish: true,
 	}, nil

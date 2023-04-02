@@ -13,50 +13,45 @@ func newTestDishToday() Dish {
 func TestDish_AverageRating(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func() DishRatings
+		input   []DishRating
 		want    float32
 		wantErr bool
 	}{
 		{
 			name:    "No ratings",
-			setup:   func() DishRatings { return NewDishRatings(newTestDishToday(), make([]DishRating, 0)) },
+			input:   make([]DishRating, 0),
 			wantErr: true,
 		},
 		{
 			name: "Test average",
-			setup: func() DishRatings {
-				d := newTestDishToday()
-				ratings := []DishRating{
-					{
-						Who:   "userA",
-						Value: OneStar,
-						When:  time.Time{},
-					},
-					{
-						Who:   "userB",
-						Value: FiveStars,
-						When:  time.Time{},
-					},
-					{
-						Who:   "userC",
-						Value: FourStars,
-						When:  time.Time{},
-					},
-					{
-						Who:   "userD",
-						Value: FourStars,
-						When:  time.Time{},
-					},
-				}
-				return NewDishRatings(d, ratings)
+			input: []DishRating{
+				{
+					Who:        "userA",
+					Value:      OneStar,
+					RatingWhen: time.Time{},
+				},
+				{
+					Who:        "userB",
+					Value:      FiveStars,
+					RatingWhen: time.Time{},
+				},
+				{
+					Who:        "userC",
+					Value:      FourStars,
+					RatingWhen: time.Time{},
+				},
+				{
+					Who:        "userD",
+					Value:      FourStars,
+					RatingWhen: time.Time{},
+				},
 			},
 			want: 3.5,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := tt.setup()
-			got, err := d.AverageRating()
+			got, err := AverageRating(tt.input)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Dish.AverageRating() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -71,8 +66,17 @@ func TestDish_AverageRating(t *testing.T) {
 func TestDish_WasServedToday(t *testing.T) {
 
 	d := NewDishToday("testDish", "testLocation")
-	d.MarkAsServedToday()
-	d.MarkAsServedToday()
 
-	assert.Equalf(t, 1, len(d.Occurrences()), "Calling was served today on the same date should not add occurences")
+	now := time.Now()
+	d.UpdateOccurrenceIfNewDay(now)
+	d.UpdateOccurrenceIfNewDay(now)
+
+	assert.Equalf(t, 1, len(d.Occurrences()), "Calling UpdateOccurrenceIfNewDay on the same date should not add occurences")
+
+	d.UpdateOccurrenceIfNewDay(now.Add(-24 * time.Hour))
+	assert.Equalf(t, 1, len(d.Occurrences()), "Calling UpdateOccurrenceIfNewDay with a date before the most recent serving should not add occurences")
+
+	d.UpdateOccurrenceIfNewDay(now.Add(24 * time.Hour))
+	assert.Equalf(t, 2, len(d.Occurrences()), "Calling UpdateOccurrenceIfNewDay with a date that is at least one day ine the future SHOULD ADD a new occurence")
+
 }

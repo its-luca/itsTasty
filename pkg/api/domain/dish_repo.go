@@ -45,6 +45,8 @@ type DishRepo interface {
 	GetMergedDish(ctx context.Context, name, servedAt string) (*MergedDish, int64, error)
 	GetMergedDishByID(ctx context.Context, id int64) (*MergedDish, error)
 
+	GetMostRecentDishForMergedDish(ctx context.Context, mergedDishID int64) (*Dish, int64, error)
+
 	//DeleteMergedDish removes all dish from the merged dish and deletes the merged dish entry
 	//(but not the individual dishes)
 	DeleteMergedDish(ctx context.Context, mergedDishName, servedAt string) error
@@ -60,7 +62,8 @@ type DishRepo interface {
 	//
 
 	//GetRatings returns all ratings of the user for the dish, unless onlyMostRecent is true in which case only
-	//the most recent rating is returned. Second result is the id of the rating
+	//the most recent rating is returned. Ratings are sorted in descending order, i.e. the most recent rating is at index
+	//0. Second result is the id of the rating
 	GetRatings(ctx context.Context, userEmail string, dishID int64, onlyMostRecent bool) ([]DishRating, error)
 
 	//CreateOrUpdateRating calls updateFN with the most recent rating (or nil if no rating exists)
@@ -70,11 +73,16 @@ type DishRepo interface {
 		updateFN func(currentRating *DishRating) (updatedRating *DishRating, createNew bool, err error)) (err error)
 	//GetAllRatingsForDish returns all ratings for the dish. If a dish has multiple servings this means that
 	//there may be up to one rating per user per serving
-	GetAllRatingsForDish(ctx context.Context, dishID int64) (*DishRatings, error)
+	GetAllRatingsForDish(ctx context.Context, dishID int64) ([]DishRating, error)
 
 	//DropRepo drops all tables related to this repo
 	DropRepo(ctx context.Context) error
 
 	//Close closes the db connection
 	Close() error
+
+	//IsDishPartOfMergedDish if dish is part of merged dish, (true, <merged dish id>,nil) is returned. If not part
+	//of merged dish (false, <invalid> ,nil)
+	IsDishPartOfMergedDish(ctx context.Context, dishName string, servedAt string) (bool, int64, error)
+	IsDishPartOfMergedDisByID(ctx context.Context, dishID int64) (bool, int64, error)
 }

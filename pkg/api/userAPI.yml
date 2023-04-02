@@ -49,12 +49,12 @@ components:
           description: Average rating for this dish. Omitted if there are no votes yet
           type: number
         ratings:
-          description: Ratings for this dish. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
+          description: Ratings for this dish. Includes up to one vote per user per serving. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
           type: object
           additionalProperties:
             type: integer
         ratingOfUser:
-          description: Rating for this dish of the requesting user. Omitted if the user has not rated yet.
+          description: Most recent rating for this dish of the requesting user. Omitted if the user has not rated yet.
           type: integer
           enum: [ 1,2,3,4,5 ]
       required:
@@ -225,8 +225,7 @@ paths:
           description: User needs to login
   /getAllDishes:
     get:
-      description: Returns the IDs of all known dishes. For dishes that are part of a merged dish, only the id of the \
-        merged dish is returned
+      description: Returns the IDs of all known dishes
       responses:
         #In the future this should be paginated
         200:
@@ -245,8 +244,7 @@ paths:
           description: User needs to login
   /searchDish:
     post:
-      description: Search for a dish by name. If a dish is part of a merged dish the id of the \
-        merged dish is returned
+      description: Search for a dish by name
       requestBody:
         required: true
         content:
@@ -270,8 +268,7 @@ paths:
           description: User needs to login
   /searchDish/byDate:
     post:
-      description: Search for a dish by Date and optional by location. If a dish is part of a merged dish the id of the \
-        merged dish is returned
+      description: Search for a dish by Date and optional by location
       requestBody:
         required: true
         content:
@@ -298,8 +295,7 @@ paths:
           description: User needs to login
   /dishes/{dishID}:
     post:
-      description: Rate the dish. If the id refers to a merged dish, the vote is transparently redirected to the \
-        most recently served dish that is contained in the merged dish
+      description: Rate the dish.
       parameters:
         - in: path
           name: dishID

@@ -13,6 +13,12 @@ type factoryCleanupFunc func() error
 type repoFactory func() (domain.DishRepo, factoryCleanupFunc, error)
 type dbTestFunc func(t *testing.T, repo domain.DishRepo)
 
+// roundTimeToDBResolution is a helper that rounds down the time precision, as the database
+// does not seem to retain nanoseconds. This helps to compare time values in tests
+func roundTimeToDBResolution(t time.Time) time.Time {
+	return t.Round(time.Second)
+}
+
 type commonDbTest struct {
 	Name     string
 	TestFunc dbTestFunc
@@ -170,7 +176,7 @@ func test_UpdateMostRecentRating_GetRatings(t *testing.T, repo domain.DishRepo) 
 	//Note: Mysql does not seem to retain nanoseconds. Thus, we have to round our time values to second
 	//to make "got want" comparisons work
 
-	timeFirstRating := roundToMysqlResolution(time.Now())
+	timeFirstRating := roundTimeToDBResolution(time.Now())
 	timeSecondRating := timeFirstRating.Add(24 * time.Hour)
 	firstRating := domain.NewDishRating(sampleUserEmail, domain.FiveStars, timeFirstRating)
 	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
@@ -276,7 +282,7 @@ func testRepo_UpdateMostRecentServing(t *testing.T, repo domain.DishRepo) {
 	require.NoError(t, err)
 
 	//There still should be no serving, but now we crate one
-	wantServingDate := domain.NowWithDayPrecision().Add(24 * time.Hour)
+	wantServingDate := domain.TruncateToDayPrecision(time.Now()).Add(24 * time.Hour)
 	err = repo.UpdateMostRecentServing(context.Background(), sampleDishID, func(currenMostRecent *time.Time) (*time.Time, error) {
 		require.True(t, domain.OnSameDay(time.Now(), *currenMostRecent))
 		return &wantServingDate, nil
@@ -317,25 +323,25 @@ func testRepo_GetDishByDate(t *testing.T, repo domain.DishRepo) {
 
 	//Get all dishes without filtering for location
 
-	gotDishIDs, err := repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), nil)
+	gotDishIDs, err := repo.GetDishByDate(context.Background(), domain.TruncateToDayPrecision(time.Now()), nil)
 	require.NoError(t, err)
 	wantDishIDs := []int64{wantDish1LocationA, wantDish2LocationA, wantDish1LocationB}
 	require.ElementsMatch(t, wantDishIDs, gotDishIDs)
 
 	//Get all dishes from locationA
-	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), &locationA)
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.TruncateToDayPrecision(time.Now()), &locationA)
 	require.NoError(t, err)
 	wantDishIDs = []int64{wantDish1LocationA, wantDish2LocationA}
 	require.ElementsMatch(t, wantDishIDs, gotDishIDs)
 
 	//search for non-existing location
 	nonExistingLocation := "nonExistingLocation"
-	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), &nonExistingLocation)
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.TruncateToDayPrecision(time.Now()), &nonExistingLocation)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(gotDishIDs))
 
 	//search for non-existing time
-	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision().Add(24*time.Hour), nil)
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.TruncateToDayPrecision(time.Now()).Add(24*time.Hour), nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(gotDishIDs))
 }
