@@ -3,6 +3,8 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"time"
 )
 
 var ErrNotOnSameLocation = errors.New("condensed dishes not on same location")
@@ -59,6 +61,23 @@ func (m *MergedDish) RemoveDish(d *Dish) error {
 	delete(m.condensedDishNames, d.Name)
 
 	return nil
+}
+
+// GetUniqueOccurrences returns only the unique time values in raw
+func (m *MergedDish) GetUniqueOccurrences(raw []time.Time) []time.Time {
+
+	unique := make(map[time.Time]interface{})
+	for _, v := range raw {
+		unique[v] = nil
+	}
+	result := make([]time.Time, 0, len(unique))
+	for k := range unique {
+		result = append(result, k)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Before(result[j])
+	})
+	return result
 }
 
 func (m *MergedDish) DeepCopy() *MergedDish {

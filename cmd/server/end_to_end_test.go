@@ -21,9 +21,21 @@ import (
 	"time"
 )
 
+type mockTimeSource struct {
+	CurrentTime time.Time
+}
+
+func (m *mockTimeSource) Now() time.Time {
+	return m.CurrentTime
+}
+
+func NewMockTimeSourceToday() *mockTimeSource {
+	return &mockTimeSource{CurrentTime: time.Now()}
+}
+
 func TestBasicVoteWorkflow(t *testing.T) {
 
-	app, ts, cleanup, err := setupTestEnv()
+	app, ts, cleanup, _, err := setupTestEnv()
 	defer ts.Close()
 	defer func() {
 		if err := cleanup(); err != nil {
@@ -166,7 +178,7 @@ func TestBasicVoteWorkflow(t *testing.T) {
 
 	//
 	// Use bot api to check that the rating is correct
-	//Do repeated accesses as this api path had transient errors previously
+	// Do repeated accesses as this api path had transient errors previously
 	//
 
 	for _i := 0; _i < 100; _i++ {
@@ -202,7 +214,7 @@ func TestBasicVoteWorkflow(t *testing.T) {
 }
 
 func TestMergedDishCRUDOperations(t *testing.T) {
-	app, ts, cleanup, err := setupTestEnv()
+	app, ts, cleanup, _, err := setupTestEnv()
 	defer ts.Close()
 	defer func() {
 		if err := cleanup(); err != nil {
@@ -340,9 +352,519 @@ func TestMergedDishCRUDOperations(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
+func TestMergedDishUpdateServings(t *testing.T) {
+
+	//Setup test env
+
+	app, ts, cleanup, timeMock, err := setupTestEnv()
+	defer ts.Close()
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Fatalf("Failed to cleanup test env : %v", err)
+		}
+	}()
+	require.NoError(t, err)
+
+	botApiClient, err := botAPI.NewClientWithResponses(ts.URL+"/botAPI/v1/", botAPI.WithHTTPClient(ts.Client()))
+	require.NoError(t, err)
+	user1, err := newUserClient("testUser1@test.mail", ts)
+	require.NoError(t, err)
+
+	testDishes, mergedDishID := setupTestDishes(t, botApiClient, user1, app)
+
+	dish1L1 := testDishes[0]
+	dish2L1 := testDishes[1]
+	dish3L1 := testDishes[2]
+	//dish1L2 := testDishes[3]
+
+	//
+	// RUN TEST
+	// 1) Add a new serving to dish2L1
+	// 2) Fetch via **dish1L1**, we should get the data for the merged dish, i.e. the updated serving
+	// for dish2L1
+	// 3) Add dish3L1 to merged dish, the amount of servings should not change, as dish3L1 was served on the same date
+	// as the other two dishes
+	// 4) Remote dish2L1 (the dish with the additional serving) from the merged dish. Now we should only have one serving
+	// for the merged dish
+	// 5) Check that dish2L1 still has the additional serving from Step 1)
+
+	// Step 1)
+
+	//timeMock controls the current time used by the botAPI. By advancing this, we can trick it into
+	//creating a new serving, as 24 hours have passed since creating of the last serving
+	timeMock.CurrentTime = timeMock.CurrentTime.Add(24 * time.Hour)
+	resp, err := botApiClient.PostCreateOrUpdateDishWithResponse(
+		context.Background(),
+		botAPI.PostCreateOrUpdateDishJSONRequestBody{
+			DishName: dish2L1.name,
+			ServedAt: dish2L1.location},
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, resp.StatusCode(), http.StatusOK)
+	require.False(t, resp.JSON200.CreatedNewLocation)
+	require.False(t, resp.JSON200.CreatedNewDish)
+
+	// Step 2
+	getDishResp, err := botApiClient.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t, 2, len(getDishResp.JSON200.RecentOccurrences), "expected two ratings")
+	require.Truef(t, getDishResp.JSON200.RecentOccurrences[0].Time.Sub(getDishResp.JSON200.RecentOccurrences[1].Time).Abs() >= 24*time.Hour,
+		fmt.Sprintf("ratings should be 24 hours apart: %v, %v", getDishResp.JSON200.RecentOccurrences[0].Time, getDishResp.JSON200.RecentOccurrences[1].Time))
+
+	//
+	// Step 3
+	//
+
+	//add dish3L1
+	patchResp, err := user1.client.PatchMergedDishesMergedDishID(context.Background(), mergedDishID,
+		userAPI.MergedDishUpdateReq{
+			AddDishIDs:    &[]int64{dish3L1.id},
+			RemoveDishIDs: nil,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, patchResp.StatusCode)
+
+	//check servings
+	getDishResp, err = botApiClient.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t, 2, len(getDishResp.JSON200.RecentOccurrences), "expected two ratings")
+	require.Truef(t, getDishResp.JSON200.RecentOccurrences[0].Time.Sub(getDishResp.JSON200.RecentOccurrences[1].Time).Abs() >= 24*time.Hour,
+		fmt.Sprintf("ratings should be 24 hours apart: %v, %v", getDishResp.JSON200.RecentOccurrences[0].Time, getDishResp.JSON200.RecentOccurrences[1].Time))
+
+	//
+	// Step 4
+	//
+
+	//remove dish2L1 from merged dish
+	patchResp, err = user1.client.PatchMergedDishesMergedDishID(context.Background(), mergedDishID,
+		userAPI.MergedDishUpdateReq{
+			AddDishIDs:    nil,
+			RemoveDishIDs: &[]int64{dish2L1.id},
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, patchResp.StatusCode)
+
+	//check servings
+	getDishResp, err = botApiClient.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t, 1, len(getDishResp.JSON200.RecentOccurrences), "expected one ratings")
+
+	//
+	// Step 5
+	//
+
+	getDishResp, err = botApiClient.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish2L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t, 2, len(getDishResp.JSON200.RecentOccurrences), "expected two ratings")
+	require.Truef(t, getDishResp.JSON200.RecentOccurrences[0].Time.Sub(getDishResp.JSON200.RecentOccurrences[1].Time).Abs() >= 24*time.Hour,
+		fmt.Sprintf("ratings should be 24 hours apart: %v, %v", getDishResp.JSON200.RecentOccurrences[0].Time, getDishResp.JSON200.RecentOccurrences[1].Time))
+}
+
+func TestMergedDishRatingWorkflow(t *testing.T) {
+
+	//Setup test env
+
+	app, ts, cleanup, _, err := setupTestEnv()
+	defer ts.Close()
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Fatalf("Failed to cleanup test env : %v", err)
+		}
+	}()
+	require.NoError(t, err)
+
+	botApiClient, err := botAPI.NewClientWithResponses(ts.URL+"/botAPI/v1/", botAPI.WithHTTPClient(ts.Client()))
+	require.NoError(t, err)
+	user1, err := newUserClient("testUser1@test.mail", ts)
+	require.NoError(t, err)
+
+	testDishes, mergedDishID := setupTestDishes(t, botApiClient, user1, app)
+
+	dish1L1 := testDishes[0]
+	dish2L1 := testDishes[1]
+	dish3L1 := testDishes[2]
+	//dish1L2 := testDishes[3]
+
+	//
+	// RUN TEST
+	// 1) Rate merged dish through dish1L1 and check that rating is returned when querying via dish2L1
+	// 2) Rate dish3L1 then add it to the merged dish. The check that when querying again, the rating of the merged
+	// dish is returned
+	// 3) Remove dish1L1 from the merged dish. Check that the dish1L1 and he merged dish have the expected rating
+
+	user1Dish1L1Voting := userAPI.RateDishReqRatingN3
+	user1Dish2L1Voting := userAPI.RateDishReqRatingN5
+	user1Dish3L1Voting := userAPI.RateDishReqRatingN1
+	wantMergedDishRatingStep1 := float32(user1Dish1L1Voting+user1Dish2L1Voting) / 2
+	wantMergedDishRatingStep2 := float32(user1Dish1L1Voting+user1Dish2L1Voting+user1Dish3L1Voting) / 3
+	wantMergedDishRatingStep3 := float32(user1Dish2L1Voting+user1Dish3L1Voting) / 2
+
+	//
+	// 1
+	//
+
+	//vote for dish1L1
+	userApiResp, err := user1.client.PostDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		userAPI.PostDishesDishIDJSONRequestBody{
+			Rating: user1Dish1L1Voting,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, userApiResp.StatusCode())
+
+	//vote for dish2L1
+	userApiResp, err = user1.client.PostDishesDishIDWithResponse(
+		context.Background(),
+		dish2L1.id,
+		userAPI.PostDishesDishIDJSONRequestBody{
+			Rating: user1Dish2L1Voting,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, userApiResp.StatusCode())
+
+	//check rating of merged dish via bot api
+
+	getDishResp, err := botApiClient.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t, wantMergedDishRatingStep1, *getDishResp.JSON200.AvgRating, "merged dish has unexpected rating")
+
+	//check rating of merged dish via user api
+	userDishResp, err := user1.client.GetDishesDishIDWithResponse(context.Background(), dish2L1.id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, userDishResp.StatusCode())
+	require.Equalf(t, wantMergedDishRatingStep1, *userDishResp.JSON200.AvgRating, "merged dish has unexpected rating")
+
+	//
+	// Step2
+	//
+
+	//Add Rating to dish3L1
+	userApiResp, err = user1.client.PostDishesDishIDWithResponse(
+		context.Background(),
+		dish3L1.id,
+		userAPI.PostDishesDishIDJSONRequestBody{
+			Rating: user1Dish3L1Voting,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, userApiResp.StatusCode())
+
+	//Add dish3L1 to merged dish
+	patchMergedDishResp, err := user1.client.PatchMergedDishesMergedDishID(context.Background(), mergedDishID,
+		userAPI.MergedDishUpdateReq{
+			AddDishIDs:    &[]int64{dish3L1.id},
+			RemoveDishIDs: nil,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, patchMergedDishResp.StatusCode)
+
+	//check rating via bot API
+	getDishResp, err = botApiClient.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t, wantMergedDishRatingStep2, *getDishResp.JSON200.AvgRating, "merged dish has unexpected rating")
+
+	//check rating via user API
+	userDishResp, err = user1.client.GetDishesDishIDWithResponse(context.Background(), dish2L1.id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, userDishResp.StatusCode())
+	require.Equalf(t, wantMergedDishRatingStep2, *userDishResp.JSON200.AvgRating, "merged dish has unexpected rating")
+
+	//
+	// Step 3
+	//
+	//Remove dish1L1 from merged dish
+	patchMergedDishResp, err = user1.client.PatchMergedDishesMergedDishID(context.Background(), mergedDishID,
+		userAPI.MergedDishUpdateReq{
+			AddDishIDs:    nil,
+			RemoveDishIDs: &[]int64{dish1L1.id},
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, patchMergedDishResp.StatusCode)
+
+	//check rating of dish1L1 and merged dish through bot api
+	getDishResp, err = botApiClient.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t, float32(user1Dish1L1Voting), *getDishResp.JSON200.AvgRating, "dish1L1 has unexpected rating")
+
+	//check rating of mergedDish through dish3L3
+	getDishResp, err = botApiClient.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish3L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t, wantMergedDishRatingStep3, *getDishResp.JSON200.AvgRating, "merged dish has unexpected rating")
+
+}
+
+func TestRateMostRecentServingWorkflow(t *testing.T) {
+	//Setup test env
+
+	app, ts, cleanup, mockTime, err := setupTestEnv()
+	defer ts.Close()
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Fatalf("Failed to cleanup test env : %v", err)
+		}
+	}()
+	require.NoError(t, err)
+
+	botApiClient, err := botAPI.NewClientWithResponses(ts.URL+"/botAPI/v1/", botAPI.WithHTTPClient(ts.Client()))
+	require.NoError(t, err)
+	user1, err := newUserClient("testUser1@test.mail", ts)
+	require.NoError(t, err)
+
+	testDishes, _ := setupTestDishes(t, botApiClient, user1, app)
+
+	dish1L1 := testDishes[0]
+
+	//
+	// RUN TEST
+	// 1) Vote for dish1L1
+	// 2) Add new serving to dish1L2. Vote again. Rating of dish should reflect both of the user rating
+	// 3) Rate again. Instead of adding a new rating, the rating from the most recent serving should change
+
+	user1Dish1L1Serving1Voting := userAPI.RateDishReqRatingN3
+	user1Dish1L1Serving2Voting := userAPI.RateDishReqRatingN5
+	user1Dish1L1Serving2UpdatedVoting := userAPI.RateDishReqRatingN4
+
+	//
+	// Step 1
+	//
+
+	//vote for dish1L1
+	postDishResp, err := user1.client.PostDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		userAPI.PostDishesDishIDJSONRequestBody{
+			Rating: user1Dish1L1Serving1Voting,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, postDishResp.StatusCode())
+
+	//check rating
+	getDishResp, err := user1.client.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	wantRatings := map[string]int{"3": 1}
+	t.Logf("Got: %+v", getDishResp.JSON200.Ratings)
+	require.InDeltaMapValues(t, getDishResp.JSON200.Ratings, wantRatings, 0, "unexpected individual ratings")
+
+	//
+	// Step 2
+	//
+
+	//add serving to dish
+	mockTime.CurrentTime = mockTime.CurrentTime.Add(24 * time.Hour)
+	botAddServingResp, err := botApiClient.PostCreateOrUpdateDishWithResponse(
+		context.Background(),
+		botAPI.PostCreateOrUpdateDishJSONRequestBody{
+			DishName: dish1L1.name,
+			ServedAt: dish1L1.location},
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, botAddServingResp.StatusCode(), http.StatusOK)
+	require.False(t, botAddServingResp.JSON200.CreatedNewLocation)
+	require.False(t, botAddServingResp.JSON200.CreatedNewDish)
+
+	//vote again for dish1L1
+	postDishResp, err = user1.client.PostDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		userAPI.PostDishesDishIDJSONRequestBody{
+			Rating: user1Dish1L1Serving2Voting,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, postDishResp.StatusCode())
+
+	//check rating
+	getDishResp, err = user1.client.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	wantRatings = map[string]int{"3": 1, "5": 1}
+	t.Logf("Got: %+v", getDishResp.JSON200.Ratings)
+	require.InDeltaMapValues(t, getDishResp.JSON200.Ratings, wantRatings, 0, "unexpected individual ratings")
+
+	//
+	// Step 3
+	//
+
+	//vote again for dish1L1
+	postDishResp, err = user1.client.PostDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		userAPI.PostDishesDishIDJSONRequestBody{
+			Rating: user1Dish1L1Serving2UpdatedVoting,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, postDishResp.StatusCode())
+
+	//check rating
+	getDishResp, err = user1.client.GetDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, getDishResp.StatusCode())
+	require.Equalf(t,
+		float32(user1Dish1L1Serving2UpdatedVoting+user1Dish1L1Serving1Voting)/2,
+		*getDishResp.JSON200.AvgRating,
+		"unexpected average rating")
+	wantRatings = map[string]int{"3": 1, "4": 1}
+	t.Logf("Got: %+v", getDishResp.JSON200.Ratings)
+	require.InDeltaMapValues(t, getDishResp.JSON200.Ratings, wantRatings, 0, "unexpected individual ratings")
+
+}
+
 type testUser struct {
 	Email  string
 	client *userAPI.ClientWithResponses
+}
+
+type testDish struct {
+	name     string
+	location string
+	id       int64
+}
+
+// setupTestDishes creates the 4 and a merged dish.
+// Returns dishes dish1L1, dish2L1, dish3L1, dish1L2 (in that order) and the id of the merged
+// dish "Merged Dish" that contains dish1L1 and dish2L1
+func setupTestDishes(t *testing.T, botApiClient botAPI.ClientWithResponsesInterface,
+	user *testUser, app *application) ([]*testDish, int64) {
+	//
+	//create test dishes
+	//
+
+	dish1L1 := testDish{
+		name:     "Test Dish 1",
+		location: "Test Location 1",
+	}
+	dish2L1 := testDish{
+		name:     "Test Dish 2",
+		location: "Test Location 1",
+	}
+	dish3L1 := testDish{
+		name:     "Test Dish 3",
+		location: "Test Location 1",
+	}
+	dish1L2 := testDish{
+		name:     "Test Dish 4",
+		location: "Test Location 2",
+	}
+
+	testDishes := []*testDish{&dish1L1, &dish2L1, &dish3L1, &dish1L2}
+
+	for i, v := range testDishes {
+		resp, err := botApiClient.PostCreateOrUpdateDishWithResponse(
+			context.Background(),
+			botAPI.PostCreateOrUpdateDishJSONRequestBody{
+				DishName: v.name,
+				ServedAt: v.location},
+			func(ctx context.Context, req *http.Request) error {
+				req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+				return nil
+			})
+		require.NoError(t, err)
+		require.Equal(t, resp.StatusCode(), http.StatusOK)
+		//for the first and the last test dish, a new location should be created
+		require.Equal(t, i == 0 || i == 3, resp.JSON200.CreatedNewLocation)
+		require.True(t, resp.JSON200.CreatedNewDish)
+
+		v.id = resp.JSON200.DishID
+	}
+
+	//
+	// Create merged dish via user api
+	//
+
+	wantMergedDishName := "Merged Dish"
+	wantMergedDishIDsV1 := []int64{dish1L1.id, dish2L1.id}
+
+	jsonResp, err := user.client.PostMergedDishesWithResponse(context.Background(),
+		userAPI.CreateMergedDishReq{
+			MergedDishes: wantMergedDishIDsV1,
+			Name:         wantMergedDishName,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, jsonResp.StatusCode())
+	mergedDishID := jsonResp.JSON200.MergedDishID
+
+	return testDishes, mergedDishID
 }
 
 // newUserClient is a helper function that creates a client that is logged in as the given user
@@ -410,7 +932,7 @@ func newUserClient(userEmail string, server *httptest.Server) (*testUser, error)
 
 // setupTestEnv prepares a new test environment. The caller must call the returned cleanup function
 // to terminate/free the resources allocated by this function. The caller must close ts once they are done with it
-func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() error, err error) {
+func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() error, mockTime *mockTimeSource, err error) {
 	//
 	//instantiate db backend
 	//
@@ -447,6 +969,14 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 		return repo, nil
 	}
 
+	mockTime = NewMockTimeSourceToday()
+	botApiFactory := func(repo domain.DishRepo) *botAPI.Service {
+		return botAPI.NewServiceCustomTime(repo, mockTime)
+	}
+	userApiFactory := func(repo domain.DishRepo) *userAPI.HttpServer {
+		return userAPI.NewHttpServerCustomTime(repo, mockTime)
+	}
+
 	repoCleanupFN := func() error {
 		if err := repo.DropRepo(context.Background()); err != nil {
 			return fmt.Errorf("failed to drop repo : %v", err)
@@ -474,7 +1004,7 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 		sessionLifetime: 10 * time.Minute,
 	}
 
-	app, err = newApplication(&config, dbFactory)
+	app, err = newApplication(&config, dbFactory, botApiFactory, userApiFactory)
 	if err != nil {
 		err = fmt.Errorf("failed to istantiate app : %v", err)
 		return
@@ -488,7 +1018,7 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create cookiejar : %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create cookiejar : %v", err)
 	}
 	ts.Client().Jar = jar
 
@@ -497,5 +1027,5 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 		dockerErr := dockerCleanupFN()
 		return errors.Join(repoErr, dockerErr)
 	}
-	return app, ts, cleanupFN, nil
+	return app, ts, cleanupFN, mockTime, nil
 }

@@ -59,10 +59,10 @@ type GetDishResp struct {
 	// OccurrenceCount Amount of times this dish occurred
 	OccurrenceCount int `json:"occurrenceCount"`
 
-	// RatingOfUser Rating for this dish of the requesting user. Omitted if the user has not rated yet.
+	// RatingOfUser Most recent rating for this dish of the requesting user. Omitted if the user has not rated yet.
 	RatingOfUser *GetDishRespRatingOfUser `json:"ratingOfUser,omitempty"`
 
-	// Ratings Ratings for this dish. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
+	// Ratings Ratings for this dish. Includes up to one vote per user per serving. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
 	Ratings map[string]int `json:"ratings"`
 
 	// RecentOccurrences Most recent occurrences of the dish. Might not contain the whole history
@@ -72,7 +72,7 @@ type GetDishResp struct {
 	ServedAt string `json:"servedAt"`
 }
 
-// GetDishRespRatingOfUser Rating for this dish of the requesting user. Omitted if the user has not rated yet.
+// GetDishRespRatingOfUser Most recent rating for this dish of the requesting user. Omitted if the user has not rated yet.
 type GetDishRespRatingOfUser int
 
 // GetUsersMeResp Information about the requesting user

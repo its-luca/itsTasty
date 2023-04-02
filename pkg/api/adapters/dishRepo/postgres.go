@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/volatiletech/null/v8"
 	"itsTasty/pkg/api/adapters/dishRepo/sqlboilerPSQL"
 	"itsTasty/pkg/api/domain"
 	"log"
@@ -18,6 +19,82 @@ import (
 type PostgresRepo struct {
 	db              *sql.DB
 	migrationSource migrate.MigrationSource
+}
+
+func (p *PostgresRepo) GetMostRecentDishForMergedDish(ctx context.Context, mergedDishID int64) (*domain.Dish, int64, error) {
+	//fetch merged dish from db
+	dbDish, err := sqlboilerPSQL.Dishes(
+		sqlboilerPSQL.DishWhere.MergedDishID.EQ(null.IntFrom(int(mergedDishID))),
+		qm.InnerJoin(fmt.Sprintf("%s on %s = %s",
+			sqlboilerPSQL.TableNames.DishOccurrences,
+			sqlboilerPSQL.DishOccurrenceColumns.DishID,
+			sqlboilerPSQL.DishTableColumns.ID,
+		),
+		),
+		qm.OrderBy(sqlboilerPSQL.DishOccurrenceColumns.Date+" desc"),
+		qm.Limit(1),
+	).One(ctx, p.db)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			err = domain.ErrNotFound
+			return nil, 0, err
+		}
+		return nil, 0, fmt.Errorf("failed get determine most recent dish dish: %w", err)
+	}
+
+	domainDish, err := p.GetDishByID(ctx, int64(dbDish.ID))
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get dish: %v", err)
+	}
+
+	return domainDish, int64(dbDish.ID), nil
+
+}
+
+func (p *PostgresRepo) IsDishPartOfMergedDish(ctx context.Context, dishName string, servedAt string) (bool, int64, error) {
+	dbDish, err := sqlboilerPSQL.Dishes(
+		qm.InnerJoin(
+			fmt.Sprintf("%s on %s =%s",
+				sqlboilerPSQL.TableNames.Locations,
+				sqlboilerPSQL.DishTableColumns.LocationID,
+				sqlboilerPSQL.LocationTableColumns.ID,
+			),
+		),
+		sqlboilerPSQL.DishWhere.Name.EQ(dishName),
+		sqlboilerPSQL.LocationWhere.Name.EQ(servedAt),
+	).One(ctx, p.db)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, 0, domain.ErrNotFound
+		}
+		return false, 0, fmt.Errorf("failed to fetch dish : %w", err)
+	}
+
+	if dbDish.MergedDishID.Ptr() == nil {
+		return false, 0, nil
+	}
+
+	return true, int64(*dbDish.MergedDishID.Ptr()), nil
+}
+
+func (p *PostgresRepo) IsDishPartOfMergedDisByID(ctx context.Context, dishID int64) (bool, int64, error) {
+	dbDish, err := sqlboilerPSQL.Dishes(
+		sqlboilerPSQL.DishWhere.ID.EQ(int(dishID)),
+	).One(ctx, p.db)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, 0, domain.ErrNotFound
+		}
+		return false, 0, fmt.Errorf("failed to fetch dish : %w", err)
+	}
+
+	if dbDish.MergedDishID.Ptr() == nil {
+		return false, 0, nil
+	}
+
+	return true, int64(*dbDish.MergedDishID.Ptr()), nil
 }
 
 func NewPostgresRepo(db *sql.DB, migrationSource migrate.MigrationSource) (domain.DishRepo, error) {
@@ -466,7 +543,7 @@ func (p *PostgresRepo) setOrCreateRating(ctx context.Context, userEmail string, 
 	dbRating := sqlboilerPSQL.DishRating{
 		DishID: int(dishID),
 		UserID: dbUser.ID,
-		Date:   rating.When,
+		Date:   rating.RatingWhen,
 		Rating: int(rating.Value),
 	}
 	if isNew {
@@ -492,7 +569,7 @@ func (p *PostgresRepo) createRating(ctx context.Context, userEmail string, dishI
 	dbRating := sqlboilerPSQL.DishRating{
 		DishID: int(dishID),
 		UserID: dbUser.ID,
-		Date:   rating.When,
+		Date:   rating.RatingWhen,
 		Rating: int(rating.Value),
 	}
 
@@ -574,7 +651,7 @@ func (p *PostgresRepo) CreateOrUpdateRating(ctx context.Context, userEmail strin
 			return
 		}
 		dbRating.Rating = int(newRating.Value)
-		dbRating.Date = newRating.When
+		dbRating.Date = newRating.RatingWhen
 		_, err = dbRating.Update(ctx, tx, boil.Infer())
 		if err != nil {
 			err = fmt.Errorf("failed to to update to new rating %v : %w", *newRating, err)
@@ -585,12 +662,7 @@ func (p *PostgresRepo) CreateOrUpdateRating(ctx context.Context, userEmail strin
 	return
 }
 
-func (p *PostgresRepo) GetAllRatingsForDish(ctx context.Context, dishID int64) (*domain.DishRatings, error) {
-
-	domDish, err := p.GetDishByID(ctx, dishID)
-	if err != nil {
-		return nil, fmt.Errorf(" failed to fetch dish : %w", err)
-	}
+func (p *PostgresRepo) GetAllRatingsForDish(ctx context.Context, dishID int64) ([]domain.DishRating, error) {
 
 	dbRatings, err := sqlboilerPSQL.DishRatings(
 		sqlboilerPSQL.DishRatingWhere.DishID.EQ(int(dishID)),
@@ -610,8 +682,7 @@ func (p *PostgresRepo) GetAllRatingsForDish(ctx context.Context, dishID int64) (
 		domainDishRatings = append(domainDishRatings, domRating)
 	}
 
-	res := domain.NewDishRatings(*domDish, domainDishRatings)
-	return &res, nil
+	return domainDishRatings, nil
 }
 
 func (p *PostgresRepo) DropRepo(_ context.Context) error {
