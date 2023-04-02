@@ -3,3 +3,4 @@
 /testdata/selfSignedTLS/server.crt
 /testdata/selfSignedTLS/server.key
 /server
+.idea/
