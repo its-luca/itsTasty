@@ -372,6 +372,9 @@ func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishI
 	p.Go(func(ctx context.Context) error {
 		var err error
 		mostRecentUserRating, err = fetchMostRecentUserRating(dbCtx, h.repo, userEmail, request.DishID)
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil
+		}
 		return err
 	})
 
