@@ -380,9 +380,6 @@ func (p *PostgresRepo) GetDishByDate(ctx context.Context, when time.Time, option
 
 	dbDishes, err := sqlboilerPSQL.Dishes(mods...).All(ctx, p.db)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return make([]int64, 0), nil
-		}
 		return nil, fmt.Errorf("failed to fetch occurences for given timepoint : %v", err)
 	}
 
@@ -493,6 +490,10 @@ func (p *PostgresRepo) GetRatings(ctx context.Context, userEmail string, dishID 
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("failed to query dish rating : %v", err)
+	}
+
+	if len(dbRatings) == 0 {
+		return nil, domain.ErrNotFound
 	}
 
 	//convert db data to domain data and return

@@ -64,6 +64,7 @@ type DishRepo interface {
 	//GetRatings returns all ratings of the user for the dish, unless onlyMostRecent is true in which case only
 	//the most recent rating is returned. Ratings are sorted in descending order, i.e. the most recent rating is at index
 	//0. Second result is the id of the rating
+	//Returns domain.ErrNotFound if there are no ratings yet
 	GetRatings(ctx context.Context, userEmail string, dishID int64, onlyMostRecent bool) ([]DishRating, error)
 
 	//CreateOrUpdateRating calls updateFN with the most recent rating (or nil if no rating exists)
