@@ -32,8 +32,8 @@ type DishRepo interface {
 	UpdateMostRecentServing(ctx context.Context, dishID int64,
 		updateFN func(currenMostRecent *time.Time) (*time.Time, error)) (err error)
 
-	//GetAllDishIDs returns a slice with all dish ids
-	GetAllDishIDs(ctx context.Context) ([]int64, error)
+	//GetAllDishesSimple a slice with basic data for all dishes
+	GetAllDishesSimple(ctx context.Context) ([]SimpleDishView, error)
 
 	//CRUD for merged dishes
 

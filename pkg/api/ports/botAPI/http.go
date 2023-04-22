@@ -2,9 +2,11 @@ package botAPI
 
 import (
 	"context"
+	"errors"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -52,13 +54,31 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 
+	sanitizeName := func(s string) string {
+		prefixes := []string{
+			`"""YOUR FAVORITES""`,
+			"Begrenztes Angebot :",
+			"BEGRENZTES ANGEBOT:",
+			"VEGANISSIMO: ",
+		}
+		for _, v := range prefixes {
+			s = strings.TrimPrefix(s, v)
+		}
+
+		s = strings.Trim(s, " ")
+		return s
+
+	}
+
+	request.Body.DishName = sanitizeName(request.Body.DishName)
+
 	_, createdDish, createdLocation, dishID, err := s.repo.GetOrCreateDish(dbCtx, request.Body.DishName, request.Body.ServedAt)
 	if err != nil {
 		log.Printf("GetOrCreateDish for dishName %v : %v", request.Body.DishName, err)
 		return PostCreateOrUpdateDish500JSONResponse{}, nil
 	}
-	dbCancel()
 
+	dbCancel()
 	dbCtx, dbCancel = context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 
@@ -78,14 +98,40 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 		return PostCreateOrUpdateDish500JSONResponse{}, nil
 	}
 
+	checkMergeCandidates := false
+	//set checkMergeCandidates to true if we have at least one
+	if createdDish {
+		dbCancel()
+		dbCtx, dbCancel = context.WithTimeout(ctx, defaultDBTimeout)
+		defer dbCancel()
+		mergeCandidates, err := ports.FetchMergeCandidates(dbCtx, dishID, s.repo)
+		if err != nil {
+			log.Printf("ports.FetchMergeCandidates failed with : %v", err)
+			if errors.Is(err, domain.ErrNotFound) {
+				log.Printf("domain.ErrNotFound should never happen here, since we just created the dish")
+			}
+			return PostCreateOrUpdateDish500JSONResponse{}, nil
+		}
+
+		for i := range mergeCandidates {
+			v := &mergeCandidates[i]
+
+			if v.SimilarityScore >= ports.MergeCandidatesDefaultSimilarityThresh {
+				checkMergeCandidates = true
+				break
+			}
+		}
+	}
+
 	//
 	// Assemble Response
 	//
 
 	return PostCreateOrUpdateDish200JSONResponse{
-		CreatedNewDish:     createdDish,
-		CreatedNewLocation: createdLocation,
-		DishID:             dishID,
+		CreatedNewDish:       createdDish,
+		CreatedNewLocation:   createdLocation,
+		DishID:               dishID,
+		CheckMergeCandidates: checkMergeCandidates,
 	}, nil
 
 }

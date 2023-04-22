@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+type SimpleDishView struct {
+	Id           int64
+	MergedDishID *int64
+	Name         string
+	ServedAt     string
+}
+
 type Dish struct {
 	//Name of this dish
 	Name string

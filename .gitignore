@@ -4,3 +4,5 @@
 /testdata/selfSignedTLS/server.key
 /server
 .idea/
+.DS_Store
+.vscode/

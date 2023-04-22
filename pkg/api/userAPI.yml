@@ -57,6 +57,10 @@ components:
           description: Most recent rating for this dish of the requesting user. Omitted if the user has not rated yet.
           type: integer
           enum: [ 1,2,3,4,5 ]
+        mergedDishID:
+          description: If set, the dish is part of this merged dish
+          type: integer
+          format: int64
       required:
         - name
         - occurrenceCount
@@ -94,13 +98,41 @@ components:
       required:
         - dishName
         - foundDish
+
+
+    GetAllDishesRespEntry:
+      description: Entry in the result array returned by GetAllDishesResponse
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: dishID
+        mergedDishID:
+          type: integer
+          format: int64
+          description: Optional field, if this dish is part of a merged dish
+        name:
+          type: string
+          description: Name of this dish
+        servedAt:
+          type: string
+          description: Location where this dish is served at
+      required:
+        - id
+        - name
+        - servedAt
+
     GetAllDishesResponse:
-      description: Array with all known dish IDs
-      type: array
-      items:
-        type: integer
-        format: int64
-        description: dishID
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/GetAllDishesRespEntry'
+      required:
+        - data
+
     GetUsersMeResp:
       description: Information about the requesting user
       type: object
@@ -176,33 +208,71 @@ components:
             description: dish ID
 
     MergedDishManagementData:
-        description: Management Data for merged dish
+      description: Management Data for merged dish
+      type: object
+      properties:
+        servedAt:
+          description: Location the merged dish is served at
+          type: string
+        name:
+          description: Name of the merged dish
+          type: string
+        containedDishes:
+          description: Information about contained dishes
+          type: array
+          items:
+              $ref: '#/components/schemas/ContainedDishEntry'
+      required:
+        - servedAt
+        - name
+        - containedDishes
+
+    ContainedDishEntry:
+        description: Information about dish contained in mergeddish
         type: object
         properties:
-          containedDishNames:
-            description: Names of the dishes contained in the merged dish
-            type: array
-            items:
-              type: string
-              description: dish name
-          containedDishIDs:
-            description: IDs dishes contained in the merged dish
-            type: array
-            items:
-              type: integer
-              format: int64
-              description: dish ID
-          servedAt:
-            description: Location the merged dish is served at
-            type: string
           name:
-            description: Name of the merged dish
             type: string
+          id:
+            type: integer
+            format: int64
+            description: dish ID
+
         required:
-          - containedDishIDs
-          - containedDishNames
-          - servedAt
           - name
+          - id
+
+    GetMergeCandidatesRespEntry:
+      type: object
+      properties:
+        dishID:
+          type: integer
+          format: int64
+          description: dish ID
+        dishName:
+          type: string
+          description: dish name
+        mergedDishID:
+          type: integer
+          format: int64
+          description: If set, this dish is already part of a merged dish
+      required:
+        - dishID
+        - dishName
+
+    GetMergeCandidatesResp:
+      type: object
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/GetMergeCandidatesRespEntry'
+      required:
+        - candidates
+
+
+
+
 
 paths:
   /users/me:
@@ -293,6 +363,31 @@ paths:
                 $ref: '#/components/schemas/BasicError'
         '401':
           description: User needs to login
+
+  /dishes/mergeCandidates/{dishID}:
+    get:
+      description: Returns dishes that have a similar name and should probably be merged with this dish
+      parameters:
+        - in: path
+          name: dishID
+          schema:
+            type: integer
+            format: int64
+          required: true
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetMergeCandidatesResp'
+        500:
+          description: Internal error but input was fine
+        401:
+          description: User needs to login
+        404:
+          description: dishID not found
+
   /dishes/{dishID}:
     post:
       description: Rate the dish.

@@ -3,6 +3,7 @@ module itsTasty
 go 1.20
 
 require (
+	github.com/adrg/strutil v0.3.0
 	github.com/alexedwards/scs/v2 v2.5.1
 	github.com/coreos/go-oidc v2.2.1+incompatible
 	github.com/deepmap/oapi-codegen v1.12.4
