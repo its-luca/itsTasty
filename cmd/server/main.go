@@ -8,14 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/alexedwards/scs/v2"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
-	"github.com/go-co-op/gocron"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	migrate "github.com/rubenv/sql-migrate"
-	"golang.org/x/crypto/sha3"
-	"golang.org/x/sync/errgroup"
 	"itsTasty/pkg/api/adapters/dishRepo"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports/botAPI"
@@ -30,6 +22,15 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/alexedwards/scs/v2"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
+	"github.com/go-co-op/gocron"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	migrate "github.com/rubenv/sql-migrate"
+	"golang.org/x/crypto/sha3"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -409,10 +410,10 @@ func (app *application) setupRouter(botAPIFactory botAPI.ServiceFactory, userAPi
 		log.Printf("DEV MODE: Allowing CORS + Credentials from %v", app.conf.devCORS)
 		router.Use(cors.Handler(cors.Options{
 			AllowedOrigins:   []string{app.conf.devCORS},
-			AllowedMethods:   []string{http.MethodOptions, http.MethodGet, http.MethodPost, http.MethodHead},
+			AllowedMethods:   []string{http.MethodOptions, http.MethodGet, http.MethodPost, http.MethodHead, http.MethodPatch, http.MethodDelete},
 			AllowedHeaders:   []string{"Content-Type"},
 			AllowCredentials: true,
-			Debug:            true,
+			Debug:            false,
 		}))
 	}
 

@@ -36,7 +36,7 @@ func runCommonDbTests(t *testing.T, factory repoFactory) {
 			TestFunc: testRepo_GetOrCreateDish_CheckNotFoundError,
 		},
 		{
-			Name:     "GetAllDishIDs",
+			Name:     "GetAllDishesSimple",
 			TestFunc: testRepo_GetAllDishIDs,
 		},
 		{
@@ -147,16 +147,23 @@ func testRepo_GetOrCreateDish_CheckNotFoundError(t *testing.T, repo domain.DishR
 
 func testRepo_GetAllDishIDs(t *testing.T, repo domain.DishRepo) {
 	//Initially there should be no dish
-	ids, err := repo.GetAllDishIDs(context.Background())
+	ids, err := repo.GetAllDishesSimple(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(ids))
 
 	//Create dish and query again
+
 	_, _, _, dishID, err := repo.GetOrCreateDish(context.Background(), "testDish", "testLocation")
+	want := []domain.SimpleDishView{{
+		Id:           dishID,
+		MergedDishID: nil,
+		Name:         "testDish",
+		ServedAt:     "testLocation",
+	}}
 	require.NoError(t, err)
-	ids, err = repo.GetAllDishIDs(context.Background())
+	ids, err = repo.GetAllDishesSimple(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, []int64{dishID}, ids)
+	require.Equal(t, want, ids)
 
 }
 

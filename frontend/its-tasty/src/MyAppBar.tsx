@@ -22,7 +22,10 @@ interface navEntry {
     link: string
 }
 
-const pages : navEntry[] = [{name: "Today's Menu",link:"dishesByDate"}]
+const pages : navEntry[] = [
+    {name: "Today's Menu",link:"dishesByDate"},
+    {name: "All Dishes", link:"dishes"}
+]
 const settings : navEntry[]= [{name: "Logout" , link: new URL(urlJoin(process.env.REACT_APP_AUTH_API_BASE_URL!,'/logout')).href}];
 
 interface ResponsiveAppBarProps {

@@ -16,6 +16,7 @@ import Typography from "@mui/material/Typography";
 
 interface DishViewProps {
     dishID : number
+    showRatingData: boolean
 }
 
 export function DishVIew(props : DishViewProps) {
@@ -205,7 +206,7 @@ export function DishVIew(props : DishViewProps) {
                             </TableCell>
                         </TableRow>
 
-                        <TableRow>
+                        {props.showRatingData && <TableRow>
                             <TableCell component={Paper}>
                                 <Typography variant={variantLeftColumn}>Average Rating</Typography>
                             </TableCell>
@@ -213,42 +214,42 @@ export function DishVIew(props : DishViewProps) {
                                 <Rating
                                     max={5}
                                     precision={0.25}
-                                    value={ (dishData.avgRating !== undefined  && dishData.avgRating !== 0) ? dishData.avgRating : null }
+                                    value={(dishData.avgRating !== undefined && dishData.avgRating !== 0) ? dishData.avgRating : null}
                                     readOnly={true}
                                 />
                             </TableCell>
-                        </TableRow>
+                        </TableRow>}
 
-                        <TableRow>
+                        {props.showRatingData && <TableRow>
                             <TableCell component={Paper}>
                                 <Typography variant={variantLeftColumn}>Your Rating</Typography>
                             </TableCell>
                             <TableCell component={Paper}>
-                              <Rating
-                                  max={5}
-                                  value={dishData.ratingOfUser === undefined ? null : dishData.ratingOfUser}
-                                 onChange={(_event, value) => value !== null && updateUserVoting(value,props.dishID)}
-                              />
+                                <Rating
+                                    max={5}
+                                    value={dishData.ratingOfUser === undefined ? null : dishData.ratingOfUser}
+                                    onChange={(_event, value) => value !== null && updateUserVoting(value, props.dishID)}
+                                />
                             </TableCell>
-                        </TableRow>
+                        </TableRow>}
 
-                        <TableRow>
+                        {props.showRatingData && <TableRow>
                             <TableCell component={Paper}>
                                 <Typography variant={variantLeftColumn}>Ratings</Typography>
                             </TableCell>
                             <TableCell component={Paper}>
-                            {
-                                ratings.map( (value,index) => (
+                                {
+                                    ratings.map((value, index) => (
                                         <Box sx={{
-                                            display:"flex",
-                                            alignItems:"center",
+                                            display: "flex",
+                                            alignItems: "center",
                                         }}>
-                                            <Typography sx={sxLeftColum} >{value}</Typography>
-                                            <Rating name="read-only" value={index+1} max={index+1} readOnly />
+                                            <Typography sx={sxLeftColum}>{value}</Typography>
+                                            <Rating name="read-only" value={index + 1} max={index + 1} readOnly/>
                                         </Box>
-                                ))}
+                                    ))}
                             </TableCell>
-                        </TableRow>
+                        </TableRow>}
 
                     </TableBody>
                 </Table>

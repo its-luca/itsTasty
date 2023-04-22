@@ -52,6 +52,38 @@ type HttpServer struct {
 	timeSource TimeSource
 }
 
+func (h *HttpServer) GetDishesMergeCandidatesDishID(ctx context.Context, request GetDishesMergeCandidatesDishIDRequestObject) (GetDishesMergeCandidatesDishIDResponseObject, error) {
+
+	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout*2)
+	defer dbCancel()
+
+	mergeCandidates, err := ports.FetchMergeCandidates(dbCtx, request.DishID, h.repo)
+	if err != nil {
+		log.Printf("ports.FetchMergeCandidates failed with : %v", err)
+		if errors.Is(err, domain.ErrNotFound) {
+			return GetDishesMergeCandidatesDishID404Response{}, nil
+		}
+		return GetDishesMergeCandidatesDishID500Response{}, nil
+	}
+	log.Printf("all merge candidates: %+v", mergeCandidates)
+
+	respData := make([]GetMergeCandidatesRespEntry, 0)
+	for i := range mergeCandidates {
+		v := &mergeCandidates[i]
+
+		if v.SimilarityScore >= ports.MergeCandidatesDefaultSimilarityThresh {
+			respData = append(respData, GetMergeCandidatesRespEntry{
+				DishID:       v.DishID,
+				DishName:     v.Name,
+				MergedDishID: v.MergedDishID,
+			})
+		}
+	}
+
+	return GetDishesMergeCandidatesDishID200JSONResponse{Candidates: respData}, nil
+
+}
+
 func NewHttpServer(repo domain.DishRepo) *HttpServer {
 	return &HttpServer{repo: repo, timeSource: defaultTimeSource{}}
 }
@@ -97,14 +129,24 @@ func (h *HttpServer) GetMergedDishesMergedDishID(ctx context.Context, r GetMerge
 		log.Printf("failed get at least one dish for dishes %v served at %v : %v", dishNames, mergedDish.ServedAt, err)
 		return GetMergedDishesMergedDishID500Response{}, nil
 	}
+	if len(dishNames) != len(dishIDs) {
+		log.Printf("Got %v dishNames but only %v dishIds", len(dishNames), len(dishIDs))
+		return GetMergedDishesMergedDishID500Response{}, nil
+	}
+	containedDishes := make([]ContainedDishEntry, 0)
+	for idx, id := range dishIDs {
+		containedDishes = append(containedDishes, ContainedDishEntry{
+			Id:   id,
+			Name: dishNames[idx],
+		})
+	}
 
 	//assemble response
 
 	resp := GetMergedDishesMergedDishID200JSONResponse{
-		ContainedDishIDs:   dishIDs,
-		ContainedDishNames: dishNames,
-		Name:               mergedDish.Name,
-		ServedAt:           mergedDish.ServedAt,
+		Name:            mergedDish.Name,
+		ServedAt:        mergedDish.ServedAt,
+		ContainedDishes: containedDishes,
 	}
 
 	return resp, nil
@@ -391,6 +433,7 @@ func (h *HttpServer) GetDishesDishID(ctx context.Context, request GetDishesDishI
 		RatingOfUser:      nil, //updated below if data is available
 		Ratings:           basicDishData.Ratings,
 		RecentOccurrences: basicDishData.RecentOccurrences,
+		MergedDishID:      basicDishData.MergedDishID,
 	}
 
 	if mostRecentUserRating != nil {
@@ -455,13 +498,25 @@ func (h *HttpServer) GetGetAllDishes(ctx context.Context, _ GetGetAllDishesReque
 
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
-	dishIDs, err := h.repo.GetAllDishIDs(dbCtx)
+	dishesSimple, err := h.repo.GetAllDishesSimple(dbCtx)
 	if err != nil {
 		log.Printf("GetAllDishes : %v", err)
 		return GetGetAllDishes500JSONResponse{}, nil
 	}
 
-	return GetGetAllDishes200JSONResponse(dishIDs), nil
+	respData := make([]GetAllDishesRespEntry, 0, len(dishesSimple))
+	for _, v := range dishesSimple {
+		respData = append(respData, GetAllDishesRespEntry{
+			Id:           v.Id,
+			MergedDishID: v.MergedDishID,
+			Name:         v.Name,
+			ServedAt:     v.ServedAt,
+		})
+	}
+
+	return GetGetAllDishes200JSONResponse{
+		Data: respData,
+	}, nil
 }
 
 func (h *HttpServer) PostSearchDish(ctx context.Context, request PostSearchDishRequestObject) (PostSearchDishResponseObject, error) {

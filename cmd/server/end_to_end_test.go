@@ -324,7 +324,12 @@ func TestMergedDishCRUDOperations(t *testing.T) {
 	mergedDishResp, err := user1.client.GetMergedDishesMergedDishIDWithResponse(context.Background(), mergedDishID)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, mergedDishResp.StatusCode())
-	require.ElementsMatch(t, []int64{dish1L1.id, dish2L1.id, dish3L1.id}, mergedDishResp.JSON200.ContainedDishIDs)
+	wantContainedDishEntries := []userAPI.ContainedDishEntry{
+		{Id: dish1L1.id, Name: dish1L1.name},
+		{Id: dish2L1.id, Name: dish2L1.name},
+		{Id: dish3L1.id, Name: dish3L1.name},
+	}
+	require.ElementsMatch(t, wantContainedDishEntries, mergedDishResp.JSON200.ContainedDishes)
 
 	//Remove dish1L1 from merged dish
 	resp, err = user1.client.PatchMergedDishesMergedDishID(context.Background(), mergedDishID,
@@ -339,7 +344,11 @@ func TestMergedDishCRUDOperations(t *testing.T) {
 	mergedDishResp, err = user1.client.GetMergedDishesMergedDishIDWithResponse(context.Background(), mergedDishID)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, mergedDishResp.StatusCode())
-	require.ElementsMatch(t, []int64{dish2L1.id, dish3L1.id}, mergedDishResp.JSON200.ContainedDishIDs)
+	wantContainedDishEntries = []userAPI.ContainedDishEntry{
+		{Id: dish2L1.id, Name: dish2L1.name},
+		{Id: dish3L1.id, Name: dish3L1.name},
+	}
+	require.ElementsMatch(t, wantContainedDishEntries, mergedDishResp.JSON200.ContainedDishes)
 
 	//Delete the merged dish
 	resp, err = user1.client.DeleteMergedDishesMergedDishID(context.Background(), mergedDishID)

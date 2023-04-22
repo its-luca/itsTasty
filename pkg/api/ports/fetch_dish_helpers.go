@@ -24,6 +24,7 @@ type BasicDishReply struct {
 	Ratings           map[string]int
 	RecentOccurrences []types.Date
 	ServedAt          string
+	MergedDishID      *int64
 }
 
 func FetchDishResources(ctx context.Context, repo domain.DishRepo, dishName, servedAt string) (*DishWithRatings, error) {
@@ -173,6 +174,10 @@ func FetchBasicDishData(ctx context.Context, repo domain.DishRepo, dishID int64)
 		servedAt = mergedDish.ServedAt
 	}
 
+	var respMergeDishID *int64 = nil
+	if isPartOfMergedDish {
+		respMergeDishID = &mergedDishID
+	}
 	return &BasicDishReply{
 		AvgRating:         avgRating, //updated below if data is available
 		Name:              name,
@@ -180,5 +185,6 @@ func FetchBasicDishData(ctx context.Context, repo domain.DishRepo, dishID int64)
 		Ratings:           ratings,
 		RecentOccurrences: recentOccurrences,
 		ServedAt:          servedAt,
+		MergedDishID:      respMergeDishID,
 	}, nil
 }

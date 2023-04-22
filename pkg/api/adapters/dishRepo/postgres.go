@@ -448,17 +448,29 @@ func (p *PostgresRepo) UpdateMostRecentServing(ctx context.Context, dishID int64
 	return
 }
 
-func (p *PostgresRepo) GetAllDishIDs(ctx context.Context) ([]int64, error) {
-	dbDishes, err := sqlboilerPSQL.Dishes(qm.Select(sqlboilerPSQL.DishColumns.ID)).All(ctx, p.db)
+func (p *PostgresRepo) GetAllDishesSimple(ctx context.Context) ([]domain.SimpleDishView, error) {
+	dbDishes, err := sqlboilerPSQL.Dishes(
+		qm.Load(sqlboilerPSQL.DishRels.Location),
+	).All(ctx, p.db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query dishes : %v", err)
 	}
 
-	ids := make([]int64, 0, len(dbDishes))
+	result := make([]domain.SimpleDishView, 0, len(dbDishes))
 	for _, v := range dbDishes {
-		ids = append(ids, int64(v.ID))
+		d := domain.SimpleDishView{
+			Id:           int64(v.ID),
+			MergedDishID: nil,
+			Name:         v.Name,
+			ServedAt:     v.R.Location.Name,
+		}
+		if v.MergedDishID.Valid {
+			asInt64 := int64(v.MergedDishID.Int)
+			d.MergedDishID = &asInt64
+		}
+		result = append(result, d)
 	}
-	return ids, nil
+	return result, nil
 }
 
 func (p *PostgresRepo) GetRatings(ctx context.Context, userEmail string, dishID int64, onlyMostRecent bool) ([]domain.DishRating, error) {

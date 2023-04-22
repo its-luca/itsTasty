@@ -79,10 +79,16 @@ components:
           description: ID of the created/updated dish. Just there to make subsequent calls easier
           type: integer
           format: int64
+        checkMergeCandidates:
+          description:  Can only be true for new dishes. If true, this dish should probably be merged with
+            existing dishes. You should display the user a link to the web page, which can then fetch the merge candidates
+            via the user API.
+          type: boolean
       required:
         - createdNewDish
         - dishID
         - createdNewLocation
+        - checkMergeCandidates
 
 
 security:

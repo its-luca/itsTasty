@@ -30,7 +30,6 @@ func NewMockAuthenticator(defaultURLAfterLogin, urlAfterLogout string,
 
 func (m *MockAuthenticator) CheckSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Mock CheckSession called")
 
 		_, err := m.session.GetProfile(r.Context(), SessionKeyProfile)
 		if err != nil {
@@ -45,7 +44,6 @@ func (m *MockAuthenticator) CheckSession(next http.Handler) http.Handler {
 // MockCallbackHandler simply stores a fixed UserProfile under SessionKeyProfile
 
 func (m *MockAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("MockCallbackHandler was called")
 
 	user := m.defaultUserProfile
 	//for the mock login handler the caller can optionally supply a username as a request parameter
@@ -71,7 +69,6 @@ func (m *MockAuthenticator) CallbackHandler(w http.ResponseWriter, r *http.Reque
 }
 
 func (m *MockAuthenticator) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Mock LoginHandler called,creating session")
 
 	user := m.defaultUserProfile
 	//for the mock login handler the caller can optionally supply a username as a request parameter
