@@ -16,7 +16,7 @@ echo "$(cat $DOCKER_TOKEN_FILE)" | docker login  -u its-luca --password-stdin gh
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
-sudo docker buildx build \
+docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --build-arg  REACT_APP_USER_API_BASE_URL="$REACT_APP_USER_API_BASE_URL" \
   --build-arg  REACT_APP_AUTH_API_BASE_URL="$REACT_APP_AUTH_API_BASE_URL" \

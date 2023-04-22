@@ -8,14 +8,14 @@ fi
 ENV_FILE=$1
 
 if [[ "$ENV_FILE" == 'dev' ]]; then
-  sudo docker build -f ./cmd/server/Dockerfile -t "its-tasty:latest" .
+  docker build -f ./cmd/server/Dockerfile -t "its-tasty:latest" .
   exit
 fi
 
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
-sudo docker build \
+docker build \
   --build-arg  REACT_APP_USER_API_BASE_URL="$REACT_APP_USER_API_BASE_URL" \
   --build-arg  REACT_APP_AUTH_API_BASE_URL="$REACT_APP_AUTH_API_BASE_URL" \
   --build-arg  REACT_APP_PUBLIC_URL="$REACT_APP_PUBLIC_URL" \
