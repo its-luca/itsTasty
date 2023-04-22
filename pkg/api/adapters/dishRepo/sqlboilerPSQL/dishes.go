@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/friendsofgo/errors"
+	"github.com/volatiletech/null/v8"
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries"
 	"github.com/volatiletech/sqlboiler/v4/queries/qm"
@@ -23,32 +24,42 @@ import (
 
 // Dish is an object representing the database table.
 type Dish struct {
-	ID         int    `boil:"id" json:"id" toml:"id" yaml:"id"`
-	LocationID int    `boil:"location_id" json:"location_id" toml:"location_id" yaml:"location_id"`
-	Name       string `boil:"name" json:"name" toml:"name" yaml:"name"`
+	ID           int       `boil:"id" json:"id" toml:"id" yaml:"id"`
+	LocationID   int       `boil:"location_id" json:"location_id" toml:"location_id" yaml:"location_id"`
+	Name         string    `boil:"name" json:"name" toml:"name" yaml:"name"`
+	MergedDishID null.Int  `boil:"merged_dish_id" json:"merged_dish_id,omitempty" toml:"merged_dish_id" yaml:"merged_dish_id,omitempty"`
+	MergedAt     null.Time `boil:"merged_at" json:"merged_at,omitempty" toml:"merged_at" yaml:"merged_at,omitempty"`
 
 	R *dishR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L dishL  `boil:"-" json:"-" toml:"-" yaml:"-"`
 }
 
 var DishColumns = struct {
-	ID         string
-	LocationID string
-	Name       string
+	ID           string
+	LocationID   string
+	Name         string
+	MergedDishID string
+	MergedAt     string
 }{
-	ID:         "id",
-	LocationID: "location_id",
-	Name:       "name",
+	ID:           "id",
+	LocationID:   "location_id",
+	Name:         "name",
+	MergedDishID: "merged_dish_id",
+	MergedAt:     "merged_at",
 }
 
 var DishTableColumns = struct {
-	ID         string
-	LocationID string
-	Name       string
+	ID           string
+	LocationID   string
+	Name         string
+	MergedDishID string
+	MergedAt     string
 }{
-	ID:         "dishes.id",
-	LocationID: "dishes.location_id",
-	Name:       "dishes.name",
+	ID:           "dishes.id",
+	LocationID:   "dishes.location_id",
+	Name:         "dishes.name",
+	MergedDishID: "dishes.merged_dish_id",
+	MergedAt:     "dishes.merged_at",
 }
 
 // Generated where
@@ -76,23 +87,91 @@ func (w whereHelperstring) NIN(slice []string) qm.QueryMod {
 	return qm.WhereNotIn(fmt.Sprintf("%s NOT IN ?", w.field), values...)
 }
 
+type whereHelpernull_Int struct{ field string }
+
+func (w whereHelpernull_Int) EQ(x null.Int) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, false, x)
+}
+func (w whereHelpernull_Int) NEQ(x null.Int) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, true, x)
+}
+func (w whereHelpernull_Int) LT(x null.Int) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LT, x)
+}
+func (w whereHelpernull_Int) LTE(x null.Int) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LTE, x)
+}
+func (w whereHelpernull_Int) GT(x null.Int) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GT, x)
+}
+func (w whereHelpernull_Int) GTE(x null.Int) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GTE, x)
+}
+func (w whereHelpernull_Int) IN(slice []int) qm.QueryMod {
+	values := make([]interface{}, 0, len(slice))
+	for _, value := range slice {
+		values = append(values, value)
+	}
+	return qm.WhereIn(fmt.Sprintf("%s IN ?", w.field), values...)
+}
+func (w whereHelpernull_Int) NIN(slice []int) qm.QueryMod {
+	values := make([]interface{}, 0, len(slice))
+	for _, value := range slice {
+		values = append(values, value)
+	}
+	return qm.WhereNotIn(fmt.Sprintf("%s NOT IN ?", w.field), values...)
+}
+
+func (w whereHelpernull_Int) IsNull() qm.QueryMod    { return qmhelper.WhereIsNull(w.field) }
+func (w whereHelpernull_Int) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
+
+type whereHelpernull_Time struct{ field string }
+
+func (w whereHelpernull_Time) EQ(x null.Time) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, false, x)
+}
+func (w whereHelpernull_Time) NEQ(x null.Time) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, true, x)
+}
+func (w whereHelpernull_Time) LT(x null.Time) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LT, x)
+}
+func (w whereHelpernull_Time) LTE(x null.Time) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LTE, x)
+}
+func (w whereHelpernull_Time) GT(x null.Time) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GT, x)
+}
+func (w whereHelpernull_Time) GTE(x null.Time) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GTE, x)
+}
+
+func (w whereHelpernull_Time) IsNull() qm.QueryMod    { return qmhelper.WhereIsNull(w.field) }
+func (w whereHelpernull_Time) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
+
 var DishWhere = struct {
-	ID         whereHelperint
-	LocationID whereHelperint
-	Name       whereHelperstring
+	ID           whereHelperint
+	LocationID   whereHelperint
+	Name         whereHelperstring
+	MergedDishID whereHelpernull_Int
+	MergedAt     whereHelpernull_Time
 }{
-	ID:         whereHelperint{field: "\"dishes\".\"id\""},
-	LocationID: whereHelperint{field: "\"dishes\".\"location_id\""},
-	Name:       whereHelperstring{field: "\"dishes\".\"name\""},
+	ID:           whereHelperint{field: "\"dishes\".\"id\""},
+	LocationID:   whereHelperint{field: "\"dishes\".\"location_id\""},
+	Name:         whereHelperstring{field: "\"dishes\".\"name\""},
+	MergedDishID: whereHelpernull_Int{field: "\"dishes\".\"merged_dish_id\""},
+	MergedAt:     whereHelpernull_Time{field: "\"dishes\".\"merged_at\""},
 }
 
 // DishRels is where relationship names are stored.
 var DishRels = struct {
 	Location        string
+	MergedDish      string
 	DishOccurrences string
 	DishRatings     string
 }{
 	Location:        "Location",
+	MergedDish:      "MergedDish",
 	DishOccurrences: "DishOccurrences",
 	DishRatings:     "DishRatings",
 }
@@ -100,6 +179,7 @@ var DishRels = struct {
 // dishR is where relationships are stored.
 type dishR struct {
 	Location        *Location           `boil:"Location" json:"Location" toml:"Location" yaml:"Location"`
+	MergedDish      *MergedDish         `boil:"MergedDish" json:"MergedDish" toml:"MergedDish" yaml:"MergedDish"`
 	DishOccurrences DishOccurrenceSlice `boil:"DishOccurrences" json:"DishOccurrences" toml:"DishOccurrences" yaml:"DishOccurrences"`
 	DishRatings     DishRatingSlice     `boil:"DishRatings" json:"DishRatings" toml:"DishRatings" yaml:"DishRatings"`
 }
@@ -114,6 +194,13 @@ func (r *dishR) GetLocation() *Location {
 		return nil
 	}
 	return r.Location
+}
+
+func (r *dishR) GetMergedDish() *MergedDish {
+	if r == nil {
+		return nil
+	}
+	return r.MergedDish
 }
 
 func (r *dishR) GetDishOccurrences() DishOccurrenceSlice {
@@ -134,9 +221,9 @@ func (r *dishR) GetDishRatings() DishRatingSlice {
 type dishL struct{}
 
 var (
-	dishAllColumns            = []string{"id", "location_id", "name"}
+	dishAllColumns            = []string{"id", "location_id", "name", "merged_dish_id", "merged_at"}
 	dishColumnsWithoutDefault = []string{"location_id", "name"}
-	dishColumnsWithDefault    = []string{"id"}
+	dishColumnsWithDefault    = []string{"id", "merged_dish_id", "merged_at"}
 	dishPrimaryKeyColumns     = []string{"id"}
 	dishGeneratedColumns      = []string{}
 )
@@ -430,6 +517,17 @@ func (o *Dish) Location(mods ...qm.QueryMod) locationQuery {
 	return Locations(queryMods...)
 }
 
+// MergedDish pointed to by the foreign key.
+func (o *Dish) MergedDish(mods ...qm.QueryMod) mergedDishQuery {
+	queryMods := []qm.QueryMod{
+		qm.Where("\"id\" = ?", o.MergedDishID),
+	}
+
+	queryMods = append(queryMods, mods...)
+
+	return MergedDishes(queryMods...)
+}
+
 // DishOccurrences retrieves all the dish_occurrence's DishOccurrences with an executor.
 func (o *Dish) DishOccurrences(mods ...qm.QueryMod) dishOccurrenceQuery {
 	var queryMods []qm.QueryMod
@@ -568,6 +666,130 @@ func (dishL) LoadLocation(ctx context.Context, e boil.ContextExecutor, singular 
 				local.R.Location = foreign
 				if foreign.R == nil {
 					foreign.R = &locationR{}
+				}
+				foreign.R.Dishes = append(foreign.R.Dishes, local)
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// LoadMergedDish allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for an N-1 relationship.
+func (dishL) LoadMergedDish(ctx context.Context, e boil.ContextExecutor, singular bool, maybeDish interface{}, mods queries.Applicator) error {
+	var slice []*Dish
+	var object *Dish
+
+	if singular {
+		var ok bool
+		object, ok = maybeDish.(*Dish)
+		if !ok {
+			object = new(Dish)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeDish)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeDish))
+			}
+		}
+	} else {
+		s, ok := maybeDish.(*[]*Dish)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeDish)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeDish))
+			}
+		}
+	}
+
+	args := make([]interface{}, 0, 1)
+	if singular {
+		if object.R == nil {
+			object.R = &dishR{}
+		}
+		if !queries.IsNil(object.MergedDishID) {
+			args = append(args, object.MergedDishID)
+		}
+
+	} else {
+	Outer:
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &dishR{}
+			}
+
+			for _, a := range args {
+				if queries.Equal(a, obj.MergedDishID) {
+					continue Outer
+				}
+			}
+
+			if !queries.IsNil(obj.MergedDishID) {
+				args = append(args, obj.MergedDishID)
+			}
+
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	query := NewQuery(
+		qm.From(`merged_dishes`),
+		qm.WhereIn(`merged_dishes.id in ?`, args...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load MergedDish")
+	}
+
+	var resultSlice []*MergedDish
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice MergedDish")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results of eager load for merged_dishes")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for merged_dishes")
+	}
+
+	if len(dishAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(resultSlice) == 0 {
+		return nil
+	}
+
+	if singular {
+		foreign := resultSlice[0]
+		object.R.MergedDish = foreign
+		if foreign.R == nil {
+			foreign.R = &mergedDishR{}
+		}
+		foreign.R.Dishes = append(foreign.R.Dishes, object)
+		return nil
+	}
+
+	for _, local := range slice {
+		for _, foreign := range resultSlice {
+			if queries.Equal(local.MergedDishID, foreign.ID) {
+				local.R.MergedDish = foreign
+				if foreign.R == nil {
+					foreign.R = &mergedDishR{}
 				}
 				foreign.R.Dishes = append(foreign.R.Dishes, local)
 				break
@@ -853,6 +1075,86 @@ func (o *Dish) SetLocation(ctx context.Context, exec boil.ContextExecutor, inser
 	return nil
 }
 
+// SetMergedDish of the dish to the related item.
+// Sets o.R.MergedDish to related.
+// Adds o to related.R.Dishes.
+func (o *Dish) SetMergedDish(ctx context.Context, exec boil.ContextExecutor, insert bool, related *MergedDish) error {
+	var err error
+	if insert {
+		if err = related.Insert(ctx, exec, boil.Infer()); err != nil {
+			return errors.Wrap(err, "failed to insert into foreign table")
+		}
+	}
+
+	updateQuery := fmt.Sprintf(
+		"UPDATE \"dishes\" SET %s WHERE %s",
+		strmangle.SetParamNames("\"", "\"", 1, []string{"merged_dish_id"}),
+		strmangle.WhereClause("\"", "\"", 2, dishPrimaryKeyColumns),
+	)
+	values := []interface{}{related.ID, o.ID}
+
+	if boil.IsDebug(ctx) {
+		writer := boil.DebugWriterFrom(ctx)
+		fmt.Fprintln(writer, updateQuery)
+		fmt.Fprintln(writer, values)
+	}
+	if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+		return errors.Wrap(err, "failed to update local table")
+	}
+
+	queries.Assign(&o.MergedDishID, related.ID)
+	if o.R == nil {
+		o.R = &dishR{
+			MergedDish: related,
+		}
+	} else {
+		o.R.MergedDish = related
+	}
+
+	if related.R == nil {
+		related.R = &mergedDishR{
+			Dishes: DishSlice{o},
+		}
+	} else {
+		related.R.Dishes = append(related.R.Dishes, o)
+	}
+
+	return nil
+}
+
+// RemoveMergedDish relationship.
+// Sets o.R.MergedDish to nil.
+// Removes o from all passed in related items' relationships struct.
+func (o *Dish) RemoveMergedDish(ctx context.Context, exec boil.ContextExecutor, related *MergedDish) error {
+	var err error
+
+	queries.SetScanner(&o.MergedDishID, nil)
+	if _, err = o.Update(ctx, exec, boil.Whitelist("merged_dish_id")); err != nil {
+		return errors.Wrap(err, "failed to update local table")
+	}
+
+	if o.R != nil {
+		o.R.MergedDish = nil
+	}
+	if related == nil || related.R == nil {
+		return nil
+	}
+
+	for i, ri := range related.R.Dishes {
+		if queries.Equal(o.MergedDishID, ri.MergedDishID) {
+			continue
+		}
+
+		ln := len(related.R.Dishes)
+		if ln > 1 && i < ln-1 {
+			related.R.Dishes[i] = related.R.Dishes[ln-1]
+		}
+		related.R.Dishes = related.R.Dishes[:ln-1]
+		break
+	}
+	return nil
+}
+
 // AddDishOccurrences adds the given related objects to the existing relationships
 // of the dish, optionally inserting them as new records.
 // Appends related to o.R.DishOccurrences.
@@ -924,7 +1226,7 @@ func (o *Dish) AddDishRatings(ctx context.Context, exec boil.ContextExecutor, in
 				strmangle.SetParamNames("\"", "\"", 1, []string{"dish_id"}),
 				strmangle.WhereClause("\"", "\"", 2, dishRatingPrimaryKeyColumns),
 			)
-			values := []interface{}{o.ID, rel.DishID, rel.UserID}
+			values := []interface{}{o.ID, rel.ID}
 
 			if boil.IsDebug(ctx) {
 				writer := boil.DebugWriterFrom(ctx)

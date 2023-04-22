@@ -8,14 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/alexedwards/scs/v2"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
-	"github.com/go-co-op/gocron"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	migrate "github.com/rubenv/sql-migrate"
-	"golang.org/x/crypto/sha3"
-	"golang.org/x/sync/errgroup"
 	"itsTasty/pkg/api/adapters/dishRepo"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports/botAPI"
@@ -30,6 +22,15 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/alexedwards/scs/v2"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
+	"github.com/go-co-op/gocron"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	migrate "github.com/rubenv/sql-migrate"
+	"golang.org/x/crypto/sha3"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -228,7 +229,7 @@ func parseConfig() (*config, error) {
 
 type dishRepoFactoryFunc func() (domain.DishRepo, error)
 
-func newApplication(cfg *config, dishRepoFactory dishRepoFactoryFunc) (*application, error) {
+func newApplication(cfg *config, dishRepoFactory dishRepoFactoryFunc, botAPIFactory botAPI.ServiceFactory, userAPIFactory userAPI.HttpServerFactory) (*application, error) {
 
 	//Build Session Storage
 
@@ -359,47 +360,13 @@ func newApplication(cfg *config, dishRepoFactory dishRepoFactoryFunc) (*applicat
 		jobScheduler:  jobScheduler,
 	}
 
-	app.router, err = app.setupRouter()
+	app.router, err = app.setupRouter(botAPIFactory, userAPIFactory)
 	if err != nil {
 		return nil, fmt.Errorf("app.setupRouter : %v", err)
 	}
 
 	return &app, nil
 
-}
-
-// connectToMariaDB connects to the db waiting some time for the db to come online before giving up
-func connectToMariaDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string) (*sql.DB, error) {
-
-	dsn := fmt.Sprintf("%v:%v@tcp(%v)/%v?parseTime=true", dbUser, dbPW, dbURL, dbName)
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("sql.Open dsn %v : %v", dsn, err)
-	}
-
-	log.Printf("Trying to connect to db...")
-	retries := 10
-	connected := false
-	for retries > 0 && !connected {
-		pingCtx, pingCancel := context.WithTimeout(ctx, 10*time.Second)
-		err := db.PingContext(pingCtx)
-		if err != nil {
-			log.Printf("Error connecting to db : %v", err)
-			log.Printf("%v retries remaining", retries)
-			retries -= 1
-			time.Sleep(3 * time.Second)
-		} else {
-			log.Printf("Connected to db")
-			connected = true
-		}
-		pingCancel()
-	}
-
-	if !connected {
-		return nil, fmt.Errorf("error connecting to db")
-	}
-
-	return db, nil
 }
 
 // connectToMariaDB connects to the db waiting some time for the db to come online before giving up
@@ -435,7 +402,7 @@ func connectToPostgresDB(ctx context.Context, dbUser, dbPW, dbURL, dbName string
 	return db, nil
 }
 
-func (app *application) setupRouter() (chi.Router, error) {
+func (app *application) setupRouter(botAPIFactory botAPI.ServiceFactory, userAPiFactory userAPI.HttpServerFactory) (chi.Router, error) {
 	log.Printf("Configuring router...")
 	router := chi.NewRouter()
 
@@ -443,10 +410,10 @@ func (app *application) setupRouter() (chi.Router, error) {
 		log.Printf("DEV MODE: Allowing CORS + Credentials from %v", app.conf.devCORS)
 		router.Use(cors.Handler(cors.Options{
 			AllowedOrigins:   []string{app.conf.devCORS},
-			AllowedMethods:   []string{http.MethodOptions, http.MethodGet, http.MethodPost, http.MethodHead},
+			AllowedMethods:   []string{http.MethodOptions, http.MethodGet, http.MethodPost, http.MethodHead, http.MethodPatch, http.MethodDelete},
 			AllowedHeaders:   []string{"Content-Type"},
 			AllowCredentials: true,
-			Debug:            true,
+			Debug:            false,
 		}))
 	}
 
@@ -480,7 +447,7 @@ func (app *application) setupRouter() (chi.Router, error) {
 		})
 	})
 
-	userAPIServer := userAPI.NewHttpServer(app.dishRepo)
+	userAPIServer := userAPiFactory(app.dishRepo)
 	userAPIHandlers := userAPI.NewStrictHandler(userAPIServer, nil)
 	userAPI.HandlerFromMux(userAPIHandlers, userAPiRouter)
 	router.Mount("/userAPI/v1", userAPiRouter)
@@ -502,7 +469,7 @@ func (app *application) setupRouter() (chi.Router, error) {
 		})
 	})
 
-	botAPIServer := botAPI.NewService(app.dishRepo)
+	botAPIServer := botAPIFactory(app.dishRepo)
 	botAPIHandlers := botAPI.NewStrictHandler(botAPIServer, nil)
 	botAPI.HandlerFromMux(botAPIHandlers, botAPIRouter)
 	router.Mount("/botAPI/v1", botAPIRouter)
@@ -611,8 +578,16 @@ func main() {
 		return repo, nil
 	}
 
+	defaultBotApiFactory := func(repo domain.DishRepo) *botAPI.Service {
+		return botAPI.NewService(repo)
+	}
+
+	defaultUserApiFactory := func(repo domain.DishRepo) *userAPI.HttpServer {
+		return userAPI.NewHttpServer(repo)
+	}
+
 	log.Printf("Building application...")
-	app, err := newApplication(cfg, defaultDishRepoFactory)
+	app, err := newApplication(cfg, defaultDishRepoFactory, defaultBotApiFactory, defaultUserApiFactory)
 	if err != nil {
 		log.Printf("newApplication : %v", err)
 		return

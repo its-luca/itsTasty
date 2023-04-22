@@ -6,10 +6,15 @@ import {AuthContext} from "./AuthContext";
 import {lsKeyIsAuthenticated} from "./localStorageKeys";
 import {LocationState} from "./PrivateRoutes";
 import {ResponsiveAppBar} from "./MyAppBar";
+import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 
 
 
 function App() {
+
+
+    const queryClient = new QueryClient()
 
     const location = useLocation();
     const [userEmail,setUserEmail] = useState<string|undefined>(undefined);
@@ -60,8 +65,12 @@ function App() {
 
     return (
     <AuthContext.Provider value={defaultAuthContextValue}>
-        <ResponsiveAppBar userName={userEmail ? userEmail : "Error"}/>
-        <Outlet />
+        <QueryClientProvider client={queryClient}>
+            <ResponsiveAppBar userName={userEmail ? userEmail : "Error"}/>
+            <Outlet />
+            <ReactQueryDevtools initialIsOpen={true} />
+        </QueryClientProvider>
+
     </AuthContext.Provider>
 );
 }

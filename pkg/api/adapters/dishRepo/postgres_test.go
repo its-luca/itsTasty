@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	migrate "github.com/rubenv/sql-migrate"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/testutils"
@@ -51,4 +52,81 @@ func Test_Postgres_RunCommon(t *testing.T) {
 		}
 		return repo, cleanupFunc, nil
 	})
+}
+
+func Test_arrayDiff(t *testing.T) {
+	type args[K comparable] struct {
+		old     []K
+		updated []K
+	}
+	type testCase[K comparable] struct {
+		name        string
+		args        args[K]
+		wantRemoved []K
+		wantAdded   []K
+	}
+	tests := []testCase[int]{
+		{
+			name: "only added values",
+			args: args[int]{
+				old:     []int{1, 2, 3},
+				updated: []int{1, 2, 3, 4, 5, 6},
+			},
+			wantRemoved: []int{},
+			wantAdded:   []int{4, 5, 6},
+		},
+		{
+			name: "only removed values",
+			args: args[int]{
+				old:     []int{1, 2, 3},
+				updated: []int{2},
+			},
+			wantRemoved: []int{1, 3},
+			wantAdded:   []int{},
+		},
+		{
+			name: "only unchanged",
+			args: args[int]{
+				old:     []int{1, 2, 3},
+				updated: []int{1, 2, 3},
+			},
+			wantRemoved: []int{},
+			wantAdded:   []int{},
+		},
+		{
+			name: "old is empty",
+			args: args[int]{
+				old:     []int{},
+				updated: []int{1, 2, 3},
+			},
+			wantRemoved: []int{},
+			wantAdded:   []int{1, 2, 3},
+		},
+		{
+			name: "updated is empty",
+			args: args[int]{
+				old:     []int{1},
+				updated: []int{},
+			},
+			wantRemoved: []int{1},
+			wantAdded:   []int{},
+		},
+		{
+			name: "removed, updated, same combined",
+			args: args[int]{
+				old:     []int{1, 2},
+				updated: []int{2, 3},
+			},
+			wantRemoved: []int{1},
+			wantAdded:   []int{3},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotRemoved, gotAdded := arrayDiff(tt.args.old, tt.args.updated)
+			assert.ElementsMatchf(t, tt.wantRemoved, gotRemoved, "unexpected deleted values")
+			assert.ElementsMatchf(t, tt.wantAdded, gotAdded, "unexpected added values")
+
+		})
+	}
 }

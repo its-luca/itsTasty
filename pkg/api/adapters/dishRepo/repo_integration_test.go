@@ -13,6 +13,12 @@ type factoryCleanupFunc func() error
 type repoFactory func() (domain.DishRepo, factoryCleanupFunc, error)
 type dbTestFunc func(t *testing.T, repo domain.DishRepo)
 
+// roundTimeToDBResolution is a helper that rounds down the time precision, as the database
+// does not seem to retain nanoseconds. This helps to compare time values in tests
+func roundTimeToDBResolution(t time.Time) time.Time {
+	return t.Round(time.Second)
+}
+
 type commonDbTest struct {
 	Name     string
 	TestFunc dbTestFunc
@@ -30,7 +36,7 @@ func runCommonDbTests(t *testing.T, factory repoFactory) {
 			TestFunc: testRepo_GetOrCreateDish_CheckNotFoundError,
 		},
 		{
-			Name:     "GetAllDishIDs",
+			Name:     "GetAllDishesSimple",
 			TestFunc: testRepo_GetAllDishIDs,
 		},
 		{
@@ -42,8 +48,24 @@ func runCommonDbTests(t *testing.T, factory repoFactory) {
 			TestFunc: testRepo_GetDishByDate,
 		},
 		{
-			Name:     "SetOrCreateRating",
-			TestFunc: test_SetOrCreateRating,
+			Name:     "UpdateMostRecentRating_and_GetRatings",
+			TestFunc: test_UpdateMostRecentRating_GetRatings,
+		},
+		{
+			Name:     "CreateMergedDish",
+			TestFunc: testPostgresRepo_CreateMergedDish,
+		},
+		{
+			Name:     "AddDishToMergedDish",
+			TestFunc: testPostgresRepo_AddDishToMergedDish,
+		},
+		{
+			Name:     "RemoveDishFromMergedDish",
+			TestFunc: testPostgresRepo_RemoveDishFromMergedDish,
+		},
+		{
+			Name:     "DeleteMergedDish",
+			TestFunc: testPostgresRepo_DeleteMergedDish,
 		},
 	}
 
@@ -125,20 +147,27 @@ func testRepo_GetOrCreateDish_CheckNotFoundError(t *testing.T, repo domain.DishR
 
 func testRepo_GetAllDishIDs(t *testing.T, repo domain.DishRepo) {
 	//Initially there should be no dish
-	ids, err := repo.GetAllDishIDs(context.Background())
+	ids, err := repo.GetAllDishesSimple(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(ids))
 
 	//Create dish and query again
+
 	_, _, _, dishID, err := repo.GetOrCreateDish(context.Background(), "testDish", "testLocation")
+	want := []domain.SimpleDishView{{
+		Id:           dishID,
+		MergedDishID: nil,
+		Name:         "testDish",
+		ServedAt:     "testLocation",
+	}}
 	require.NoError(t, err)
-	ids, err = repo.GetAllDishIDs(context.Background())
+	ids, err = repo.GetAllDishesSimple(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, []int64{dishID}, ids)
+	require.Equal(t, want, ids)
 
 }
 
-func test_SetOrCreateRating(t *testing.T, repo domain.DishRepo) {
+func test_UpdateMostRecentRating_GetRatings(t *testing.T, repo domain.DishRepo) {
 	//add dish
 	const sampleDishName = "sampleDish"
 	const sampleUserEmail = "test@use.er"
@@ -151,39 +180,92 @@ func test_SetOrCreateRating(t *testing.T, repo domain.DishRepo) {
 	// Run Test
 	//
 
-	//Note: Mysql does not seem to retain nano seconds. Thus, we have to round or time values to second
+	//Note: Mysql does not seem to retain nanoseconds. Thus, we have to round our time values to second
 	//to make "got want" comparisons work
 
-	//Initial call should create new rating
-	initialDishRating := domain.NewDishRating(sampleUserEmail, domain.FiveStars, roundToMysqlResolution(time.Now()))
-	isNew, err := repo.SetOrCreateRating(context.Background(), sampleUserEmail, sampleDishID, initialDishRating)
-	require.NoError(t, err)
-	require.True(t, isNew)
+	timeFirstRating := roundTimeToDBResolution(time.Now())
+	timeSecondRating := timeFirstRating.Add(24 * time.Hour)
+	firstRating := domain.NewDishRating(sampleUserEmail, domain.FiveStars, timeFirstRating)
+	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
 
-	//Get the newly created rating
-	dishRating, err := repo.GetRating(context.Background(), sampleUserEmail, sampleDishID)
-	require.NoError(t, err)
-	require.Equal(t, initialDishRating, *dishRating)
+			require.Nilf(t, currentRating, "on first call to CreateOrUpdateRating \"currentRating\" should be nil")
 
-	//Second call should only change the rating
-	updatedDishRating := domain.NewDishRating(sampleUserEmail, domain.OneStar, roundToMysqlResolution(time.Now().Add(2*time.Second)))
-	isNew, err = repo.SetOrCreateRating(context.Background(), sampleUserEmail, sampleDishID, updatedDishRating)
+			updatedRating = &firstRating
+			createNew = true
+			err = nil
+			return
+		})
 	require.NoError(t, err)
-	require.False(t, isNew)
 
-	//Get the updated rating
-	dishRating, err = repo.GetRating(context.Background(), sampleUserEmail, sampleDishID)
+	//Get the newly created rating and check values
+	dishRatings, err := repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, false)
 	require.NoError(t, err)
-	require.Equal(t, updatedDishRating, *dishRating)
+	require.Equal(t, []domain.DishRating{firstRating}, dishRatings)
 
-	//Use GetAll to also check that there is only one rating
-	ratings, err := repo.GetAllRatingsForDish(context.Background(), sampleDishID)
+	//Create a second rating
+	secondRating := domain.NewDishRating(sampleUserEmail, domain.OneStar, timeSecondRating)
+	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
+
+			require.Equalf(t, firstRating, *currentRating, "on second call to CreateOrUpdateRating"+
+				"\"currentRating\" have the value of \"firstRating\"")
+
+			updatedRating = &secondRating
+			createNew = true
+			err = nil
+			return
+		})
 	require.NoError(t, err)
-	count := 0
-	for _, v := range ratings.Ratings() {
-		count += v
-	}
-	require.Equal(t, 1, count)
+
+	//GetRatings should return both ratings if "onlyMostRecent" is set to false
+	gotRatings, err := repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, false)
+	require.NoError(t, err)
+	require.Equal(t, []domain.DishRating{firstRating, secondRating}, gotRatings)
+
+	//GetRatings should return ONLY MOST RECENT (although there are now two ratings) since onyMostRecent is set to true
+	gotRatings, err = repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, true)
+	require.NoError(t, err)
+	require.Equal(t, []domain.DishRating{secondRating}, gotRatings)
+
+	//Update the most recent rating
+	updatedSecondRating := domain.NewDishRating(sampleUserEmail, domain.ThreeStars, timeSecondRating.Add(10*time.Minute))
+	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
+
+			updatedRating = &updatedSecondRating
+			createNew = false
+			err = nil
+			return
+		})
+	require.NoError(t, err)
+
+	//Fetch most recent rating and check for updated values
+	gotRatings, err = repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, true)
+	require.NoError(t, err)
+	require.Equal(t, []domain.DishRating{updatedSecondRating}, gotRatings)
+
+	//Check that no date is updated if we return nil in updateFN
+	err = repo.CreateOrUpdateRating(context.Background(), sampleUserEmail, sampleDishID,
+		func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error) {
+
+			updatedRating = nil
+			createNew = false
+			err = nil
+			return
+		})
+	require.NoError(t, err)
+
+	//Fetch most recent rating and check that values did not change
+	gotRatings, err = repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, true)
+	require.NoError(t, err)
+	require.Equal(t, []domain.DishRating{updatedSecondRating}, gotRatings)
+
+	//Check that there are only two ratings in total
+	gotRatings, err = repo.GetRatings(context.Background(), sampleUserEmail, sampleDishID, false)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(gotRatings))
+
 }
 
 func testRepo_UpdateMostRecentServing(t *testing.T, repo domain.DishRepo) {
@@ -207,7 +289,7 @@ func testRepo_UpdateMostRecentServing(t *testing.T, repo domain.DishRepo) {
 	require.NoError(t, err)
 
 	//There still should be no serving, but now we crate one
-	wantServingDate := domain.NowWithDayPrecision().Add(24 * time.Hour)
+	wantServingDate := domain.TruncateToDayPrecision(time.Now()).Add(24 * time.Hour)
 	err = repo.UpdateMostRecentServing(context.Background(), sampleDishID, func(currenMostRecent *time.Time) (*time.Time, error) {
 		require.True(t, domain.OnSameDay(time.Now(), *currenMostRecent))
 		return &wantServingDate, nil
@@ -248,25 +330,228 @@ func testRepo_GetDishByDate(t *testing.T, repo domain.DishRepo) {
 
 	//Get all dishes without filtering for location
 
-	gotDishIDs, err := repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), nil)
+	gotDishIDs, err := repo.GetDishByDate(context.Background(), domain.TruncateToDayPrecision(time.Now()), nil)
 	require.NoError(t, err)
 	wantDishIDs := []int64{wantDish1LocationA, wantDish2LocationA, wantDish1LocationB}
 	require.ElementsMatch(t, wantDishIDs, gotDishIDs)
 
 	//Get all dishes from locationA
-	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), &locationA)
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.TruncateToDayPrecision(time.Now()), &locationA)
 	require.NoError(t, err)
 	wantDishIDs = []int64{wantDish1LocationA, wantDish2LocationA}
 	require.ElementsMatch(t, wantDishIDs, gotDishIDs)
 
 	//search for non-existing location
 	nonExistingLocation := "nonExistingLocation"
-	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision(), &nonExistingLocation)
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.TruncateToDayPrecision(time.Now()), &nonExistingLocation)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(gotDishIDs))
 
 	//search for non-existing time
-	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.NowWithDayPrecision().Add(24*time.Hour), nil)
+	gotDishIDs, err = repo.GetDishByDate(context.Background(), domain.TruncateToDayPrecision(time.Now()).Add(24*time.Hour), nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(gotDishIDs))
+}
+
+func testPostgresRepo_CreateMergedDish(t *testing.T, repo domain.DishRepo) {
+
+	//Setup : Create 2 dishes on same location
+	const locationA = "locationA"
+	const dishAName = "dishA"
+	const dishBName = "dishB"
+
+	_, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishAName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishBName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	//
+	// Run Test : Create merged dish, fetch dish, compare
+	//
+	const mergedDishName = "dishABMerged"
+	wantDishA := domain.NewDishToday(dishAName, locationA)
+	wantDishB := domain.NewDishToday(dishBName, locationA)
+
+	//Create new merged dish and insert it into db
+
+	mergedDish, err := domain.NewMergedDish(mergedDishName, wantDishA, wantDishB, []*domain.Dish{})
+	require.NoError(t, err)
+
+	wantMergedDishID, err := repo.CreateMergedDish(context.Background(), mergedDish)
+	require.NoError(t, err)
+
+	//Fetch merged dish from db and compare
+	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
+	require.Equalf(t, mergedDish, gotMergedDish, "fetched mergedDish does not match")
+
+}
+
+func testPostgresRepo_AddDishToMergedDish(t *testing.T, repo domain.DishRepo) {
+
+	//Setup : Create 3 dishes on same location
+	const locationA = "locationA"
+	const dishAName = "dishA"
+	const dishBName = "dishB"
+	const dishCName = "dishC"
+
+	_, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishAName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishBName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	dishC, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishCName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	//
+	// Run Test : Create merged dish, add additional dish to it, fetch and check
+	//
+	const mergedDishName = "dishABMerged"
+	wantDishA := domain.NewDishToday(dishAName, locationA)
+	wantDishB := domain.NewDishToday(dishBName, locationA)
+
+	//Create new merged dish and insert it into db
+
+	mergedDish, err := domain.NewMergedDish(mergedDishName, wantDishA, wantDishB, []*domain.Dish{})
+	require.NoError(t, err)
+
+	wantMergedDishID, err := repo.CreateMergedDish(context.Background(), mergedDish)
+	require.NoError(t, err)
+
+	//add additional dish
+
+	err = repo.UpdateMergedDishByID(context.Background(), wantMergedDishID, func(current *domain.MergedDish) (*domain.MergedDish, error) {
+		if err := current.AddDish(dishC); err != nil {
+			return nil, err
+		}
+
+		return current, nil
+	})
+	require.NoError(t, err)
+
+	//Fetch merged dish from db and compare
+	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
+	require.ElementsMatch(t, []string{dishAName, dishBName, dishCName}, gotMergedDish.GetCondensedDishNames(),
+		"fetched mergedDish contain expected dishes")
+
+}
+
+func testPostgresRepo_RemoveDishFromMergedDish(t *testing.T, repo domain.DishRepo) {
+
+	//Setup : Create 3 dishes on same location
+	const locationA = "locationA"
+	const dishAName = "dishA"
+	const dishBName = "dishB"
+	const dishCName = "dishC"
+
+	_, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishAName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishBName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	dishC, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishCName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	//
+	// Run Test : Create merged dish with 3 dishes, remove one dish, fetch and check
+	//
+	const mergedDishName = "dishABMerged"
+	wantDishA := domain.NewDishToday(dishAName, locationA)
+	wantDishB := domain.NewDishToday(dishBName, locationA)
+	wantDishC := domain.NewDishToday(dishCName, locationA)
+
+	//Create new merged dish and insert it into db
+
+	mergedDish, err := domain.NewMergedDish(mergedDishName, wantDishA, wantDishB, []*domain.Dish{wantDishC})
+	require.NoError(t, err)
+
+	wantMergedDishID, err := repo.CreateMergedDish(context.Background(), mergedDish)
+	require.NoError(t, err)
+
+	//remove dish C
+
+	err = repo.UpdateMergedDishByID(context.Background(), wantMergedDishID, func(current *domain.MergedDish) (*domain.MergedDish, error) {
+		if err := current.RemoveDish(dishC); err != nil {
+			return nil, err
+		}
+		return current, nil
+	})
+	require.NoError(t, err)
+
+	//Fetch merged dish from db and compare
+	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
+	require.ElementsMatch(t, []string{dishAName, dishBName}, gotMergedDish.GetCondensedDishNames(),
+		"fetched mergedDish contain expected dishes")
+
+}
+
+func testPostgresRepo_DeleteMergedDish(t *testing.T, repo domain.DishRepo) {
+
+	//Setup : Create 2 dishes on same location
+	const locationA = "locationA"
+	const dishAName = "dishA"
+	const dishBName = "dishB"
+
+	_, isNewDish, isNewLocation, _, err := repo.GetOrCreateDish(context.Background(), dishAName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.True(t, isNewLocation)
+
+	_, isNewDish, isNewLocation, _, err = repo.GetOrCreateDish(context.Background(), dishBName, locationA)
+	require.NoError(t, err)
+	require.True(t, isNewDish)
+	require.False(t, isNewLocation)
+
+	//
+	// Run Test : Create merged dish, fetch dish, delete dish, fetch again
+	//
+	const mergedDishName = "dishABMerged"
+	wantDishA := domain.NewDishToday(dishAName, locationA)
+	wantDishB := domain.NewDishToday(dishBName, locationA)
+
+	//Create new merged dish and insert it into db
+
+	mergedDish, err := domain.NewMergedDish(mergedDishName, wantDishA, wantDishB, []*domain.Dish{})
+	require.NoError(t, err)
+
+	wantMergedDishID, err := repo.CreateMergedDish(context.Background(), mergedDish)
+	require.NoError(t, err)
+
+	//Fetch merged dish from db and compare
+	gotMergedDish, gotMergedDishID, err := repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+	require.Equalf(t, wantMergedDishID, gotMergedDishID, "fetched mergedDishID does not match")
+	require.Equalf(t, mergedDish, gotMergedDish, "fetched mergedDish does not match")
+
+	//Delete merged dish
+	err = repo.DeleteMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.NoError(t, err)
+
+	//Try to fetch merged dish again. Expecting not found error
+	_, _, err = repo.GetMergedDish(context.Background(), mergedDish.Name, mergedDish.ServedAt)
+	require.ErrorIsf(t, err, domain.ErrNotFound, "expected not found error since we deleted the dish")
 }

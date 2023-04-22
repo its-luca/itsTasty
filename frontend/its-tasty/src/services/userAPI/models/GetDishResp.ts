@@ -27,19 +27,23 @@ export type GetDishResp = {
      */
     avgRating?: number;
     /**
-     * Ratings for this dish. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
+     * Ratings for this dish. Includes up to one vote per user per serving. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
      */
     ratings: Record<string, number>;
     /**
-     * Rating for this dish of the requesting user. Omitted if the user has not rated yet.
+     * Most recent rating for this dish of the requesting user. Omitted if the user has not rated yet.
      */
     ratingOfUser?: GetDishResp.ratingOfUser;
+    /**
+     * If set, the dish is part of this merged dish
+     */
+    mergedDishID?: number;
 };
 
 export namespace GetDishResp {
 
     /**
-     * Rating for this dish of the requesting user. Omitted if the user has not rated yet.
+     * Most recent rating for this dish of the requesting user. Omitted if the user has not rated yet.
      */
     export enum ratingOfUser {
         '_1' = 1,

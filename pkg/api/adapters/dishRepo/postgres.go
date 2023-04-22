@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/volatiletech/null/v8"
 	"itsTasty/pkg/api/adapters/dishRepo/sqlboilerPSQL"
 	"itsTasty/pkg/api/domain"
 	"log"
@@ -18,6 +19,82 @@ import (
 type PostgresRepo struct {
 	db              *sql.DB
 	migrationSource migrate.MigrationSource
+}
+
+func (p *PostgresRepo) GetMostRecentDishForMergedDish(ctx context.Context, mergedDishID int64) (*domain.Dish, int64, error) {
+	//fetch merged dish from db
+	dbDish, err := sqlboilerPSQL.Dishes(
+		sqlboilerPSQL.DishWhere.MergedDishID.EQ(null.IntFrom(int(mergedDishID))),
+		qm.InnerJoin(fmt.Sprintf("%s on %s = %s",
+			sqlboilerPSQL.TableNames.DishOccurrences,
+			sqlboilerPSQL.DishOccurrenceColumns.DishID,
+			sqlboilerPSQL.DishTableColumns.ID,
+		),
+		),
+		qm.OrderBy(sqlboilerPSQL.DishOccurrenceColumns.Date+" desc"),
+		qm.Limit(1),
+	).One(ctx, p.db)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			err = domain.ErrNotFound
+			return nil, 0, err
+		}
+		return nil, 0, fmt.Errorf("failed get determine most recent dish dish: %w", err)
+	}
+
+	domainDish, err := p.GetDishByID(ctx, int64(dbDish.ID))
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get dish: %v", err)
+	}
+
+	return domainDish, int64(dbDish.ID), nil
+
+}
+
+func (p *PostgresRepo) IsDishPartOfMergedDish(ctx context.Context, dishName string, servedAt string) (bool, int64, error) {
+	dbDish, err := sqlboilerPSQL.Dishes(
+		qm.InnerJoin(
+			fmt.Sprintf("%s on %s =%s",
+				sqlboilerPSQL.TableNames.Locations,
+				sqlboilerPSQL.DishTableColumns.LocationID,
+				sqlboilerPSQL.LocationTableColumns.ID,
+			),
+		),
+		sqlboilerPSQL.DishWhere.Name.EQ(dishName),
+		sqlboilerPSQL.LocationWhere.Name.EQ(servedAt),
+	).One(ctx, p.db)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, 0, domain.ErrNotFound
+		}
+		return false, 0, fmt.Errorf("failed to fetch dish : %w", err)
+	}
+
+	if dbDish.MergedDishID.Ptr() == nil {
+		return false, 0, nil
+	}
+
+	return true, int64(*dbDish.MergedDishID.Ptr()), nil
+}
+
+func (p *PostgresRepo) IsDishPartOfMergedDisByID(ctx context.Context, dishID int64) (bool, int64, error) {
+	dbDish, err := sqlboilerPSQL.Dishes(
+		sqlboilerPSQL.DishWhere.ID.EQ(int(dishID)),
+	).One(ctx, p.db)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, 0, domain.ErrNotFound
+		}
+		return false, 0, fmt.Errorf("failed to fetch dish : %w", err)
+	}
+
+	if dbDish.MergedDishID.Ptr() == nil {
+		return false, 0, nil
+	}
+
+	return true, int64(*dbDish.MergedDishID.Ptr()), nil
 }
 
 func NewPostgresRepo(db *sql.DB, migrationSource migrate.MigrationSource) (domain.DishRepo, error) {
@@ -303,9 +380,6 @@ func (p *PostgresRepo) GetDishByDate(ctx context.Context, when time.Time, option
 
 	dbDishes, err := sqlboilerPSQL.Dishes(mods...).All(ctx, p.db)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return make([]int64, 0), nil
-		}
 		return nil, fmt.Errorf("failed to fetch occurences for given timepoint : %v", err)
 	}
 
@@ -374,22 +448,34 @@ func (p *PostgresRepo) UpdateMostRecentServing(ctx context.Context, dishID int64
 	return
 }
 
-func (p *PostgresRepo) GetAllDishIDs(ctx context.Context) ([]int64, error) {
-	dbDishes, err := sqlboilerPSQL.Dishes(qm.Select(sqlboilerPSQL.DishColumns.ID)).All(ctx, p.db)
+func (p *PostgresRepo) GetAllDishesSimple(ctx context.Context) ([]domain.SimpleDishView, error) {
+	dbDishes, err := sqlboilerPSQL.Dishes(
+		qm.Load(sqlboilerPSQL.DishRels.Location),
+	).All(ctx, p.db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query dishes : %v", err)
 	}
 
-	ids := make([]int64, 0, len(dbDishes))
+	result := make([]domain.SimpleDishView, 0, len(dbDishes))
 	for _, v := range dbDishes {
-		ids = append(ids, int64(v.ID))
+		d := domain.SimpleDishView{
+			Id:           int64(v.ID),
+			MergedDishID: nil,
+			Name:         v.Name,
+			ServedAt:     v.R.Location.Name,
+		}
+		if v.MergedDishID.Valid {
+			asInt64 := int64(v.MergedDishID.Int)
+			d.MergedDishID = &asInt64
+		}
+		result = append(result, d)
 	}
-	return ids, nil
+	return result, nil
 }
 
-func (p *PostgresRepo) GetRating(ctx context.Context, userEmail string, dishID int64) (*domain.DishRating, error) {
+func (p *PostgresRepo) GetRatings(ctx context.Context, userEmail string, dishID int64, onlyMostRecent bool) ([]domain.DishRating, error) {
 
-	dbRatings, err := sqlboilerPSQL.DishRatings(
+	query := []qm.QueryMod{
 		//join with users table
 		qm.InnerJoin(fmt.Sprintf("%s on %s = %s",
 			sqlboilerPSQL.TableNames.Users,
@@ -399,7 +485,17 @@ func (p *PostgresRepo) GetRating(ctx context.Context, userEmail string, dishID i
 		sqlboilerPSQL.UserWhere.Email.EQ(userEmail),
 		//filter for dish id
 		sqlboilerPSQL.DishRatingWhere.DishID.EQ(int(dishID)),
-	).One(ctx, p.db)
+	}
+
+	if onlyMostRecent {
+		query = append(query, qm.OrderBy(sqlboilerPSQL.DishRatingColumns.Date+" desc"))
+		query = append(query, qm.Limit(1))
+	}
+
+	//fetch all ratings of the user for the given dish
+	dbRatings, err := sqlboilerPSQL.DishRatings(
+		query...,
+	).All(ctx, p.db)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -408,12 +504,21 @@ func (p *PostgresRepo) GetRating(ctx context.Context, userEmail string, dishID i
 		return nil, fmt.Errorf("failed to query dish rating : %v", err)
 	}
 
-	domainDishRating, err := domain.NewDishRatingFromDB(userEmail, dbRatings.Rating, dbRatings.Date.Local())
-	if err != nil {
-		return nil, fmt.Errorf("failed to construct domain object from db data : %w", err)
+	if len(dbRatings) == 0 {
+		return nil, domain.ErrNotFound
 	}
 
-	return &domainDishRating, nil
+	//convert db data to domain data and return
+	domainDishRatings := make([]domain.DishRating, 0, len(dbRatings))
+	for _, v := range dbRatings {
+		domainRating, err := domain.NewDishRatingFromDB(userEmail, v.Rating, v.Date.Local())
+		if err != nil {
+			return nil, fmt.Errorf("failed to construct domain object from db data : %w", err)
+		}
+		domainDishRatings = append(domainDishRatings, domainRating)
+	}
+
+	return domainDishRatings, nil
 }
 
 func (p *PostgresRepo) setOrCreateRating(ctx context.Context, userEmail string, dishID int64, rating domain.DishRating) (isNew bool, err error) {
@@ -451,7 +556,7 @@ func (p *PostgresRepo) setOrCreateRating(ctx context.Context, userEmail string, 
 	dbRating := sqlboilerPSQL.DishRating{
 		DishID: int(dishID),
 		UserID: dbUser.ID,
-		Date:   rating.When,
+		Date:   rating.RatingWhen,
 		Rating: int(rating.Value),
 	}
 	if isNew {
@@ -467,17 +572,110 @@ func (p *PostgresRepo) setOrCreateRating(ctx context.Context, userEmail string, 
 
 }
 
-func (p *PostgresRepo) SetOrCreateRating(ctx context.Context, userEmail string, dishID int64, rating domain.DishRating) (bool, error) {
+func (p *PostgresRepo) createRating(ctx context.Context, userEmail string, dishID int64, rating domain.DishRating, executor boil.ContextExecutor) (id int64, err error) {
+	dbUser, err := p.getOrCreateUser(ctx, userEmail, executor)
+	if err != nil {
+		err = fmt.Errorf("failed to get or create user : %v", err)
+		return
+	}
 
-	return p.setOrCreateRating(ctx, userEmail, dishID, rating)
+	dbRating := sqlboilerPSQL.DishRating{
+		DishID: int(dishID),
+		UserID: dbUser.ID,
+		Date:   rating.RatingWhen,
+		Rating: int(rating.Value),
+	}
+
+	if insertErr := dbRating.Insert(ctx, executor, boil.Infer()); insertErr != nil {
+		err = fmt.Errorf("failed to insert new rating : %v", insertErr)
+		return
+	}
+	id = int64(dbRating.ID)
+	return
 }
 
-func (p *PostgresRepo) GetAllRatingsForDish(ctx context.Context, dishID int64) (*domain.DishRatings, error) {
-
-	domDish, err := p.GetDishByID(ctx, dishID)
+func (p *PostgresRepo) CreateOrUpdateRating(ctx context.Context, userEmail string, dishID int64,
+	updateFN func(currentRating *domain.DishRating) (updatedRating *domain.DishRating, createNew bool, err error)) (err error) {
+	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf(" failed to fetch dish : %w", err)
+		err = fmt.Errorf("BeginTX : %w", err)
+		return
 	}
+	defer func() {
+		err = p.finishTransaction(err, tx)
+	}()
+
+	//get most recent rating and lock it for update
+	dbRating, err := sqlboilerPSQL.DishRatings(
+		//join with users table
+		qm.InnerJoin(fmt.Sprintf("%s on %s = %s",
+			sqlboilerPSQL.TableNames.Users,
+			sqlboilerPSQL.DishRatingTableColumns.UserID,
+			sqlboilerPSQL.UserTableColumns.ID)),
+		//filter for user email
+		sqlboilerPSQL.UserWhere.Email.EQ(userEmail),
+		//filter for dish id
+		sqlboilerPSQL.DishRatingWhere.DishID.EQ(int(dishID)),
+		//sort
+		qm.OrderBy(sqlboilerPSQL.DishRatingColumns.Date+" desc"),
+		//only most recent
+		qm.Limit(1),
+		qm.For("update"),
+	).One(ctx, tx)
+	haveEntry := true
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			err = fmt.Errorf("failed to fetch most recent rating : %v", err)
+			return
+
+		}
+		haveEntry = false
+	}
+
+	var oldRating *domain.DishRating
+	if haveEntry {
+		dr, newRatingErr := domain.NewDishRatingFromDB(userEmail, dbRating.Rating, dbRating.Date.Local())
+		if newRatingErr != nil {
+			err = fmt.Errorf("failed to create domain rating from db data : %w", newRatingErr)
+			return
+		}
+		oldRating = &dr
+	}
+	newRating, createNewRating, err := updateFN(oldRating)
+
+	//updateFN does not want to change anything
+	if newRating == nil {
+		return
+	}
+
+	if createNewRating {
+		//create new rating
+		_, createErr := p.createRating(ctx, userEmail, dishID, *newRating, tx)
+		if createErr != nil {
+			err = fmt.Errorf("failed to to create new rating %v : %w", *newRating, err)
+			return
+		}
+	} else {
+		//if we get here, we want to update the rating
+
+		//if we do not have an existing entry, it is an error to request to update it
+		if !haveEntry {
+			err = fmt.Errorf("updateFN requested to update entry but there is none")
+			return
+		}
+		dbRating.Rating = int(newRating.Value)
+		dbRating.Date = newRating.RatingWhen
+		_, err = dbRating.Update(ctx, tx, boil.Infer())
+		if err != nil {
+			err = fmt.Errorf("failed to to update to new rating %v : %w", *newRating, err)
+			return
+		}
+	}
+
+	return
+}
+
+func (p *PostgresRepo) GetAllRatingsForDish(ctx context.Context, dishID int64) ([]domain.DishRating, error) {
 
 	dbRatings, err := sqlboilerPSQL.DishRatings(
 		sqlboilerPSQL.DishRatingWhere.DishID.EQ(int(dishID)),
@@ -497,8 +695,7 @@ func (p *PostgresRepo) GetAllRatingsForDish(ctx context.Context, dishID int64) (
 		domainDishRatings = append(domainDishRatings, domRating)
 	}
 
-	res := domain.NewDishRatings(*domDish, domainDishRatings)
-	return &res, nil
+	return domainDishRatings, nil
 }
 
 func (p *PostgresRepo) DropRepo(_ context.Context) error {
@@ -511,4 +708,438 @@ func (p *PostgresRepo) DropRepo(_ context.Context) error {
 
 func (p *PostgresRepo) Close() error {
 	return p.db.Close()
+}
+
+func (p *PostgresRepo) CreateMergedDish(ctx context.Context, mergedDish *domain.MergedDish) (int64, error) {
+	_, id, err := p.createMergedDish(ctx, mergedDish)
+	if err != nil {
+		return 0, fmt.Errorf("createMergedDish failed : %w", err)
+	}
+
+	return id, nil
+}
+
+func (p *PostgresRepo) createMergedDish(ctx context.Context, mergedDish *domain.MergedDish) (result *domain.MergedDish, id int64, err error) {
+
+	//
+	//Create Transaction
+	//
+
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		err = fmt.Errorf("BeginTX : %w", err)
+		return
+	}
+	defer func() {
+		err = p.finishTransaction(err, tx)
+	}()
+
+	//get location id for location
+
+	dbLocation, fetchErr := sqlboilerPSQL.Locations(
+		sqlboilerPSQL.LocationWhere.Name.EQ(mergedDish.ServedAt),
+	).One(ctx, tx)
+	if fetchErr != nil {
+		err = fmt.Errorf("failed to fetch location with name \"%v\" : %w", mergedDish.ServedAt, err)
+		return
+	}
+
+	//create merged dish
+	dbMergedDish := &sqlboilerPSQL.MergedDish{
+		Name:       mergedDish.Name,
+		LocationID: dbLocation.ID,
+	}
+	err = dbMergedDish.Insert(ctx, tx, boil.Infer())
+	if err != nil {
+		err = fmt.Errorf("dbMergedDish.Insert failed : %v", err)
+		return
+	}
+
+	//update db entries for dish1Name and dish2Name to add them to the merged dish
+
+	//helper variable to set MergedAt to exact same time for dish1Name and dish2Name
+	mergeTime := time.Now()
+
+	for _, v := range mergedDish.GetCondensedDishNames() {
+		dbDish, fetchErr := sqlboilerPSQL.Dishes(
+			qm.InnerJoin(fmt.Sprintf("%s on %s = %s",
+				sqlboilerPSQL.TableNames.Locations,
+				sqlboilerPSQL.DishTableColumns.LocationID,
+				sqlboilerPSQL.LocationTableColumns.ID,
+			)),
+			sqlboilerPSQL.DishWhere.Name.EQ(v),
+			sqlboilerPSQL.LocationWhere.Name.EQ(mergedDish.ServedAt),
+			qm.For("update"),
+		).One(ctx, tx)
+		if fetchErr != nil {
+			err = fmt.Errorf("sqlboilerPSQL.Dishes failed to query dish %v : %w", v, fetchErr)
+			return
+		}
+
+		dbDish.MergedDishID.SetValid(dbMergedDish.ID)
+		dbDish.MergedAt.SetValid(mergeTime)
+
+		if _, err = dbDish.Update(ctx, tx, boil.Infer()); err != nil {
+			err = fmt.Errorf("dbDish.Update failed to update dish (name:%v, id: %v) : %v", dbDish.Name, dbDish.ID, err)
+			return
+		}
+	}
+
+	//construct result
+	result, id, err = p.getMergedDish(ctx, mergedDish.Name, mergedDish.ServedAt, tx)
+	if err != nil {
+		err = fmt.Errorf("p.getMergedDish failed for merged dish (id: %v, name: %v) : %w", dbMergedDish.ID, mergedDish.Name, err)
+	}
+	return
+
+}
+
+func (p *PostgresRepo) GetMergedDish(ctx context.Context, name, servedAt string) (*domain.MergedDish, int64, error) {
+	mergedDish, id, err := p.getMergedDish(ctx, name, servedAt, p.db)
+	if err != nil {
+		return nil, 0, fmt.Errorf("getMergedDish failed (name: %v, servedAt: %v) : %w", name, servedAt, err)
+	}
+	return mergedDish, id, nil
+}
+
+func (p *PostgresRepo) getMergedDish(ctx context.Context, name, servedAt string, executor boil.ContextExecutor) (result *domain.MergedDish,
+	id int64, err error) {
+	//fetch merged dish from db
+	dbMergedDish, err := sqlboilerPSQL.MergedDishes(
+		sqlboilerPSQL.MergedDishWhere.Name.EQ(name),
+		sqlboilerPSQL.LocationWhere.Name.EQ(servedAt),
+		qm.InnerJoin(fmt.Sprintf("%s on %s = %s",
+			sqlboilerPSQL.TableNames.Locations,
+			sqlboilerPSQL.LocationTableColumns.ID,
+			sqlboilerPSQL.MergedDishTableColumns.LocationID)),
+		qm.Load(sqlboilerPSQL.MergedDishRels.Dishes),
+		qm.Load(sqlboilerPSQL.MergedDishRels.Location),
+	).One(ctx, executor)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			err = domain.ErrNotFound
+			return
+		}
+		err = fmt.Errorf("failed get query merged dish: %w", err)
+		return
+	}
+
+	allCondensedDishNames := make(map[string]interface{}, 0)
+	for _, v := range dbMergedDish.R.Dishes {
+		allCondensedDishNames[v.Name] = nil
+	}
+
+	dbMergedDish.R.GetLocation()
+	if dbMergedDish.R.Location == nil {
+		err = fmt.Errorf("dbMergedDish.R.Location was nil")
+		return
+	}
+	result = domain.NewMergedDishFomDB(name, dbMergedDish.R.Location.Name, allCondensedDishNames)
+	id = int64(dbMergedDish.ID)
+	return
+}
+
+func (p *PostgresRepo) GetMergedDishByID(ctx context.Context, id int64) (*domain.MergedDish, error) {
+	mergedDish, err := p.getMergedDishByID(ctx, id, p.db, false)
+	if err != nil {
+		return nil, fmt.Errorf("getMergedDishByID failed (id: %v) : %w", id, err)
+	}
+	return mergedDish, nil
+}
+
+// getMergedDishByID
+// returns domain.ErrNotFound if merged dish does not exist
+func (p *PostgresRepo) getMergedDishByID(ctx context.Context, id int64, executor boil.ContextExecutor, forUpdate bool) (result *domain.MergedDish, err error) {
+	//fetch merged dish from db
+
+	query := []qm.QueryMod{sqlboilerPSQL.MergedDishWhere.ID.EQ(int(id)),
+		qm.Load(sqlboilerPSQL.MergedDishRels.Dishes),
+		qm.Load(sqlboilerPSQL.MergedDishRels.Location),
+	}
+	if forUpdate {
+		query = append(query, qm.For("update"))
+	}
+	dbMergedDish, err := sqlboilerPSQL.MergedDishes(query...).One(ctx, executor)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			err = domain.ErrNotFound
+			return
+		}
+		err = fmt.Errorf("failed get query merged dish: %w", err)
+		return
+	}
+
+	allCondensedDishNames := make(map[string]interface{}, 0)
+	for _, v := range dbMergedDish.R.Dishes {
+		allCondensedDishNames[v.Name] = nil
+	}
+
+	dbMergedDish.R.GetLocation()
+	if dbMergedDish.R.Location == nil {
+		err = fmt.Errorf("dbMergedDish.R.Location was nil")
+		return
+	}
+	result = domain.NewMergedDishFomDB(dbMergedDish.Name, dbMergedDish.R.Location.Name, allCondensedDishNames)
+	id = int64(dbMergedDish.ID)
+	return
+}
+
+func (p *PostgresRepo) addDishesToMergedDish(ctx context.Context, mergedDishName, servedAt string, dishNames []string,
+	executor boil.ContextExecutor) error {
+
+	if len(dishNames) == 0 {
+		return nil
+	}
+
+	//fetch merged dish to get id and ensure that it exists
+	dbMergedDish, fetchErr := sqlboilerPSQL.MergedDishes(
+		sqlboilerPSQL.MergedDishWhere.Name.EQ(mergedDishName),
+		qm.InnerJoin(fmt.Sprintf("%s on %v = %v",
+			sqlboilerPSQL.TableNames.Locations,
+			sqlboilerPSQL.LocationTableColumns.ID,
+			sqlboilerPSQL.MergedDishTableColumns.LocationID)),
+		sqlboilerPSQL.LocationWhere.Name.EQ(servedAt),
+	).One(ctx, executor)
+	if fetchErr != nil {
+		return fmt.Errorf("failed to fetch merged dish (name: %v, servedAt: %v) : %w",
+			mergedDishName, servedAt, fetchErr)
+	}
+
+	//query all dishes in dishNames and update them to be added to dbMergedDish
+	rowsAff, updateErr := sqlboilerPSQL.Dishes(
+		sqlboilerPSQL.DishWhere.LocationID.EQ(dbMergedDish.LocationID),
+		sqlboilerPSQL.DishWhere.Name.IN(dishNames),
+	).UpdateAll(ctx, executor, sqlboilerPSQL.M{
+		sqlboilerPSQL.DishColumns.MergedDishID: dbMergedDish.ID,
+		sqlboilerPSQL.DishColumns.MergedAt:     time.Now(),
+	})
+	if updateErr != nil {
+		return fmt.Errorf("failed to add dishes to merged dish id %v : %w", dbMergedDish.ID, fetchErr)
+	}
+
+	if got, want := rowsAff, int64(len(dishNames)); want != got {
+		return fmt.Errorf("expected %v dishes to be add but only %v rows where updated", want, got)
+	}
+
+	return nil
+}
+
+func (p *PostgresRepo) removeDishesFromMergedDish(ctx context.Context, mergedDishName,
+	servedAt string, dishNames []string, executor boil.ContextExecutor) error {
+
+	if len(dishNames) == 0 {
+		return nil
+	}
+
+	//fetch merged
+	dbMergedDish, fetchErr := sqlboilerPSQL.MergedDishes(
+		sqlboilerPSQL.MergedDishWhere.Name.EQ(mergedDishName),
+		qm.InnerJoin(fmt.Sprintf("%s on %v = %v",
+			sqlboilerPSQL.TableNames.Locations,
+			sqlboilerPSQL.LocationTableColumns.ID,
+			sqlboilerPSQL.MergedDishTableColumns.LocationID)),
+		sqlboilerPSQL.LocationWhere.Name.EQ(servedAt),
+	).One(ctx, executor)
+	if fetchErr != nil {
+		return fmt.Errorf("failed to fetch merged dish (name: %v, servedAt: %v) : %w",
+			mergedDishName, servedAt, fetchErr)
+	}
+
+	rowsAff, fetchErr := dbMergedDish.Dishes(
+		sqlboilerPSQL.DishWhere.Name.IN(dishNames),
+	).UpdateAll(ctx, executor, sqlboilerPSQL.M{
+		sqlboilerPSQL.DishColumns.MergedDishID: nil,
+		sqlboilerPSQL.DishColumns.MergedAt:     nil,
+	})
+	if fetchErr != nil {
+		return fmt.Errorf("failed remove remove dishes : %w", fetchErr)
+	}
+
+	if got, want := rowsAff, int64(len(dishNames)); want != got {
+		return fmt.Errorf("expected %v dishes to be removed but only %v rows where updated", want, got)
+	}
+
+	return nil
+}
+
+// arrayDiff is a helper function that returns (removed values, added values) or more formal
+// (<values "old" that are not in updated>,<values in new that are not in old>)
+func arrayDiff[K comparable](old, updated []K) ([]K, []K) {
+	//detect changes and persist to database
+
+	removalCandidates := make(map[K]interface{})
+	for _, v := range old {
+		removalCandidates[v] = nil
+	}
+
+	addedValues := make([]K, 0)
+	for _, v := range updated {
+		//value in updated  but not in old -> added
+		if _, ok := removalCandidates[v]; !ok {
+			addedValues = append(addedValues, v)
+		} else { //dish in updated value AND in old value -> unchanged
+			delete(removalCandidates, v)
+		}
+	}
+
+	//values remaining in removalCandidates are not in updated -> they were removed
+	removed := make([]K, 0, len(removalCandidates))
+	for k := range removalCandidates {
+		removed = append(removed, k)
+	}
+
+	return removed, addedValues
+}
+
+func (p *PostgresRepo) UpdateMergedDishByID(ctx context.Context, mergedDishID int64,
+	updateFN func(current *domain.MergedDish) (*domain.MergedDish, error)) (err error) {
+	//
+	//Create Transaction
+	//
+
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		err = fmt.Errorf("BeginTX : %w", err)
+		return
+	}
+	defer func() {
+		err = p.finishTransaction(err, tx)
+	}()
+
+	//Get most recent with lock for update
+
+	oldValue, fetchErr := p.getMergedDishByID(ctx, mergedDishID, tx, true)
+	if fetchErr != nil {
+		err = fmt.Errorf("getMergedDishByID failed : %w", err)
+		return
+	}
+
+	//perform update on domain level
+
+	updatedValue := oldValue.DeepCopy()
+	updatedValue, updateErr := updateFN(updatedValue)
+	if updateErr != nil {
+		err = fmt.Errorf("updateFN failed : %w", updateErr)
+		return
+	}
+
+	removedDishNames, addedDishNames := arrayDiff(oldValue.GetCondensedDishNames(), updatedValue.GetCondensedDishNames())
+
+	if removeErr := p.removeDishesFromMergedDish(
+		ctx,
+		oldValue.Name,
+		oldValue.ServedAt,
+		removedDishNames,
+		tx); removeErr != nil {
+		err = fmt.Errorf("removeDishFromMergedDish for dishes %v failed : %w", removedDishNames, removeErr)
+		return
+	}
+
+	if addErr := p.addDishesToMergedDish(
+		ctx,
+		oldValue.Name,
+		oldValue.ServedAt,
+		addedDishNames,
+		tx); addErr != nil {
+		err = fmt.Errorf("addDishesToMergedDish for dishes %v failed : %w", addedDishNames, addErr)
+		return
+	}
+
+	if oldValue.Name != updatedValue.Name {
+		rowsAff, nameUpdateErr := sqlboilerPSQL.MergedDishes(
+			sqlboilerPSQL.MergedDishWhere.ID.EQ(int(mergedDishID)),
+		).UpdateAll(ctx, tx, sqlboilerPSQL.M{
+			sqlboilerPSQL.MergedDishColumns.Name: updatedValue.Name,
+		})
+		if nameUpdateErr != nil {
+			err = fmt.Errorf("failed to update merged dish name : %w", nameUpdateErr)
+			return
+		}
+		if got, want := rowsAff, int64(1); want != got {
+			return fmt.Errorf("updating merged dish name affected %v rows but it should only be %v", got, want)
+		}
+	}
+
+	return
+
+}
+
+func (p *PostgresRepo) DeleteMergedDish(ctx context.Context, mergedDishName, servedAt string) error {
+	if err := p.deleteMergedDish(ctx, mergedDishName, servedAt); err != nil {
+		return fmt.Errorf("deleteMergedDish (name: %v, servedAt: %v) failed : %w", mergedDishName, servedAt, err)
+	}
+	return nil
+}
+
+func (p *PostgresRepo) DeleteMergedDishByID(ctx context.Context, mergedDishID int64) (err error) {
+	//
+	//Create Transaction
+	//
+
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		err = fmt.Errorf("BeginTX : %w", err)
+		return
+	}
+	defer func() {
+		err = p.finishTransaction(err, tx)
+	}()
+
+	//fetch merged
+	dbMergedDish, queryErr := sqlboilerPSQL.MergedDishes(
+		sqlboilerPSQL.MergedDishWhere.ID.EQ(int(mergedDishID)),
+	).One(ctx, tx)
+	if queryErr != nil {
+		err = fmt.Errorf("failed to fetch merged dish %v : %w",
+			mergedDishID, queryErr)
+		return
+	}
+
+	_, queryErr = dbMergedDish.Delete(ctx, tx)
+
+	if queryErr != nil {
+		return fmt.Errorf("failed to delete merged dish %v : %w ",
+			mergedDishID, err)
+	}
+
+	return
+}
+
+func (p *PostgresRepo) deleteMergedDish(ctx context.Context, mergedDishName, servedAt string) (err error) {
+	//
+	//Create Transaction
+	//
+
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		err = fmt.Errorf("BeginTX : %w", err)
+		return
+	}
+	defer func() {
+		err = p.finishTransaction(err, tx)
+	}()
+
+	//fetch merged
+	dbMergedDish, queryErr := sqlboilerPSQL.MergedDishes(
+		sqlboilerPSQL.MergedDishWhere.Name.EQ(mergedDishName),
+		qm.InnerJoin(fmt.Sprintf("%s on %v = %v",
+			sqlboilerPSQL.TableNames.Locations,
+			sqlboilerPSQL.LocationTableColumns.ID,
+			sqlboilerPSQL.MergedDishTableColumns.LocationID)),
+		sqlboilerPSQL.LocationWhere.Name.EQ(servedAt),
+	).One(ctx, tx)
+	if queryErr != nil {
+		err = fmt.Errorf("failed to fetch merged dish (name: %v, servedAt: %v) : %w",
+			mergedDishName, servedAt, queryErr)
+		return
+	}
+
+	_, queryErr = dbMergedDish.Delete(ctx, tx)
+
+	if queryErr != nil {
+		return fmt.Errorf("failed to delete merged dish (name: %v, servedAt: %v) : %w ",
+			mergedDishName, servedAt, err)
+	}
+
+	return
 }

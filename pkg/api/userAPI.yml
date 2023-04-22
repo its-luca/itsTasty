@@ -49,14 +49,18 @@ components:
           description: Average rating for this dish. Omitted if there are no votes yet
           type: number
         ratings:
-          description: Ratings for this dish. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
+          description: Ratings for this dish. Includes up to one vote per user per serving. Keys mean rating, values mean ratings with that amount of stars. If more than zero votes are present avgRating field contains the average rating.
           type: object
           additionalProperties:
             type: integer
         ratingOfUser:
-          description: Rating for this dish of the requesting user. Omitted if the user has not rated yet.
+          description: Most recent rating for this dish of the requesting user. Omitted if the user has not rated yet.
           type: integer
           enum: [ 1,2,3,4,5 ]
+        mergedDishID:
+          description: If set, the dish is part of this merged dish
+          type: integer
+          format: int64
       required:
         - name
         - occurrenceCount
@@ -94,13 +98,41 @@ components:
       required:
         - dishName
         - foundDish
+
+
+    GetAllDishesRespEntry:
+      description: Entry in the result array returned by GetAllDishesResponse
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: dishID
+        mergedDishID:
+          type: integer
+          format: int64
+          description: Optional field, if this dish is part of a merged dish
+        name:
+          type: string
+          description: Name of this dish
+        servedAt:
+          type: string
+          description: Location where this dish is served at
+      required:
+        - id
+        - name
+        - servedAt
+
     GetAllDishesResponse:
-      description: Array with all known dish IDs
-      type: array
-      items:
-        type: integer
-        format: int64
-        description: dishID
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/GetAllDishesRespEntry'
+      required:
+        - data
+
     GetUsersMeResp:
       description: Information about the requesting user
       type: object
@@ -123,6 +155,123 @@ components:
           type: string
       required:
         - date
+
+    CreateMergedDishReq:
+      description: Request to create a new MergedDish
+      type: object
+      properties:
+        name:
+          description: Name of the merged dish. May be equal to existing dishes but for a given \
+            location there may not be another merged dish with the same name.
+          type: string
+        mergedDishes:
+          description: Array of dish ids that should be merged. All dishes must be served at the same location \
+            and cannot be part of any other merged dishes.  At least two dishes must be provided
+          type: array
+          items:
+            type: integer
+            format: int64
+            description: dish ids
+      required:
+        - name
+        - mergedDishes
+
+    CreateMergedDishResp:
+      description: Success response for MergedDish creation
+      type: object
+      properties:
+        mergedDishID:
+          description: ID of the newly created merged dish
+          type: integer
+          format: int64
+      required:
+        - mergedDishID
+
+    MergedDishUpdateReq:
+      description: Representation of a merged dish
+      type: object
+      properties:
+        addDishIDs:
+          description: If present, these IDs are added to the merged dish.
+          type: array
+          items:
+            type: integer
+            format: int64
+            description: dish ID
+        removeDishIDs:
+          description: If present, these IDs are removed from the merged dish. At least two dish must remain. \
+            To delete a merge dish, use DELETE instead of PATCH
+          type: array
+          items:
+            type: integer
+            format: int64
+            description: dish ID
+
+    MergedDishManagementData:
+      description: Management Data for merged dish
+      type: object
+      properties:
+        servedAt:
+          description: Location the merged dish is served at
+          type: string
+        name:
+          description: Name of the merged dish
+          type: string
+        containedDishes:
+          description: Information about contained dishes
+          type: array
+          items:
+              $ref: '#/components/schemas/ContainedDishEntry'
+      required:
+        - servedAt
+        - name
+        - containedDishes
+
+    ContainedDishEntry:
+        description: Information about dish contained in mergeddish
+        type: object
+        properties:
+          name:
+            type: string
+          id:
+            type: integer
+            format: int64
+            description: dish ID
+
+        required:
+          - name
+          - id
+
+    GetMergeCandidatesRespEntry:
+      type: object
+      properties:
+        dishID:
+          type: integer
+          format: int64
+          description: dish ID
+        dishName:
+          type: string
+          description: dish name
+        mergedDishID:
+          type: integer
+          format: int64
+          description: If set, this dish is already part of a merged dish
+      required:
+        - dishID
+        - dishName
+
+    GetMergeCandidatesResp:
+      type: object
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/GetMergeCandidatesRespEntry'
+      required:
+        - candidates
+
+
+
 
 
 paths:
@@ -214,9 +363,34 @@ paths:
                 $ref: '#/components/schemas/BasicError'
         '401':
           description: User needs to login
+
+  /dishes/mergeCandidates/{dishID}:
+    get:
+      description: Returns dishes that have a similar name and should probably be merged with this dish
+      parameters:
+        - in: path
+          name: dishID
+          schema:
+            type: integer
+            format: int64
+          required: true
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetMergeCandidatesResp'
+        500:
+          description: Internal error but input was fine
+        401:
+          description: User needs to login
+        404:
+          description: dishID not found
+
   /dishes/{dishID}:
     post:
-      description: Rate the dish
+      description: Rate the dish.
       parameters:
         - in: path
           name: dishID
@@ -250,7 +424,8 @@ paths:
         404:
           description: dishID not found
     get:
-      description: Get details like ratings and occurrences for this dish including the users own rating
+      description: Get details like ratings and occurrences for this dish including the users own rating. If this dish \
+        is part of a merged dish, we return the data for the merged dish instead of the individual dish
       parameters:
         - in: path
           name: dishID
@@ -282,3 +457,109 @@ paths:
         404:
           description: dishID not found
 
+  /mergedDishes/:
+    post:
+      description: Create a new merged dish
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMergedDishReq'
+      responses:
+        200:
+          description: Success. Merged dish was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateMergedDishResp'
+        400:
+          description: Bad Input Data. See error message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        401:
+          description: User needs to login
+        500:
+          description: Internal server error but input was fine
+
+  /mergedDishes/{mergedDishID}:
+    get:
+      description: Get metadata for merged dish. Just for managing the merged dish object. Use /dishes/ endoints \
+        to get ratings etc.
+      parameters:
+        - in: path
+          name: mergedDishID
+          schema:
+            type: integer
+            format: int64
+          required: true
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MergedDishManagementData'
+        401:
+          description: User needs to login
+        404:
+          description: Merged dish not found
+        500:
+          description: Internal server error but input was fine
+    patch:
+      description: Update the values of the merged dish
+      parameters:
+        - in: path
+          name: mergedDishID
+          schema:
+            type: integer
+            format: int64
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergedDishUpdateReq'
+      responses:
+        200:
+          description: Success. Merged dish was updated
+        400:
+          description: Bad Input Data. See error message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        401:
+          description: User needs to login
+        404:
+          description: Merged dish not found
+        500:
+          description: Internal server error but input was fine
+
+    delete:
+      description: Delete the merged dish
+      parameters:
+        - in: path
+          name: mergedDishID
+          schema:
+            type: integer
+            format: int64
+          required: true
+      responses:
+        200:
+          description: Success. Merged dish was deleted
+        400:
+          description: Bad Input Data. See error message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicError'
+        401:
+          description: User needs to login
+        404:
+            description: Merged dish not found
+        500:
+          description: Internal server error but input was fine

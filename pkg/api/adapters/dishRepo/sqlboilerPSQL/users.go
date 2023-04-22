@@ -524,7 +524,7 @@ func (o *User) AddDishRatings(ctx context.Context, exec boil.ContextExecutor, in
 				strmangle.SetParamNames("\"", "\"", 1, []string{"user_id"}),
 				strmangle.WhereClause("\"", "\"", 2, dishRatingPrimaryKeyColumns),
 			)
-			values := []interface{}{o.ID, rel.DishID, rel.UserID}
+			values := []interface{}{o.ID, rel.ID}
 
 			if boil.IsDebug(ctx) {
 				writer := boil.DebugWriterFrom(ctx)

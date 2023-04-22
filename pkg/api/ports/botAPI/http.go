@@ -3,11 +3,10 @@ package botAPI
 import (
 	"context"
 	"errors"
-	"fmt"
-	"github.com/deepmap/oapi-codegen/pkg/types"
-	"golang.org/x/sync/errgroup"
 	"itsTasty/pkg/api/domain"
+	"itsTasty/pkg/api/ports"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -17,12 +16,37 @@ import (
 const defaultDBTimeout = 5 * time.Second
 
 type Service struct {
-	repo domain.DishRepo
+	repo       domain.DishRepo
+	timeSource TimeSource
+}
+
+// TimeSource allows mock time when testing
+type TimeSource interface {
+	//Now returns the current local time.
+	Now() time.Time
+}
+
+// defaultTimeSource simply wraps time.Now()
+type defaultTimeSource struct {
+}
+
+func (d defaultTimeSource) Now() time.Time {
+	return time.Now()
 }
 
 func NewService(repo domain.DishRepo) *Service {
 	return &Service{
-		repo: repo,
+		repo:       repo,
+		timeSource: defaultTimeSource{},
+	}
+}
+
+type ServiceFactory func(repo domain.DishRepo) *Service
+
+func NewServiceCustomTime(repo domain.DishRepo, timeSource TimeSource) *Service {
+	return &Service{
+		repo:       repo,
+		timeSource: timeSource,
 	}
 }
 
@@ -30,23 +54,41 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 
+	sanitizeName := func(s string) string {
+		prefixes := []string{
+			`"""YOUR FAVORITES""`,
+			"Begrenztes Angebot :",
+			"BEGRENZTES ANGEBOT:",
+			"VEGANISSIMO: ",
+		}
+		for _, v := range prefixes {
+			s = strings.TrimPrefix(s, v)
+		}
+
+		s = strings.Trim(s, " ")
+		return s
+
+	}
+
+	request.Body.DishName = sanitizeName(request.Body.DishName)
+
 	_, createdDish, createdLocation, dishID, err := s.repo.GetOrCreateDish(dbCtx, request.Body.DishName, request.Body.ServedAt)
 	if err != nil {
 		log.Printf("GetOrCreateDish for dishName %v : %v", request.Body.DishName, err)
 		return PostCreateOrUpdateDish500JSONResponse{}, nil
 	}
-	dbCancel()
 
+	dbCancel()
 	dbCtx, dbCancel = context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
 
 	err = s.repo.UpdateMostRecentServing(dbCtx, dishID, func(currenMostRecent *time.Time) (*time.Time, error) {
 		if currenMostRecent == nil {
-			newMostRecentServing := domain.NowWithDayPrecision()
+			newMostRecentServing := domain.TruncateToDayPrecision(s.timeSource.Now())
 			return &newMostRecentServing, nil
 		}
-		if !domain.OnSameDay(*currenMostRecent, time.Now()) {
-			newMostRecentServing := domain.NowWithDayPrecision()
+		if !domain.OnSameDay(*currenMostRecent, s.timeSource.Now()) {
+			newMostRecentServing := domain.TruncateToDayPrecision(s.timeSource.Now())
 			return &newMostRecentServing, nil
 		}
 		return nil, nil
@@ -56,14 +98,40 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 		return PostCreateOrUpdateDish500JSONResponse{}, nil
 	}
 
+	checkMergeCandidates := false
+	//set checkMergeCandidates to true if we have at least one
+	if createdDish {
+		dbCancel()
+		dbCtx, dbCancel = context.WithTimeout(ctx, defaultDBTimeout)
+		defer dbCancel()
+		mergeCandidates, err := ports.FetchMergeCandidates(dbCtx, dishID, s.repo)
+		if err != nil {
+			log.Printf("ports.FetchMergeCandidates failed with : %v", err)
+			if errors.Is(err, domain.ErrNotFound) {
+				log.Printf("domain.ErrNotFound should never happen here, since we just created the dish")
+			}
+			return PostCreateOrUpdateDish500JSONResponse{}, nil
+		}
+
+		for i := range mergeCandidates {
+			v := &mergeCandidates[i]
+
+			if v.SimilarityScore >= ports.MergeCandidatesDefaultSimilarityThresh {
+				checkMergeCandidates = true
+				break
+			}
+		}
+	}
+
 	//
 	// Assemble Response
 	//
 
 	return PostCreateOrUpdateDish200JSONResponse{
-		CreatedNewDish:     createdDish,
-		CreatedNewLocation: createdLocation,
-		DishID:             dishID,
+		CreatedNewDish:       createdDish,
+		CreatedNewLocation:   createdLocation,
+		DishID:               dishID,
+		CheckMergeCandidates: checkMergeCandidates,
 	}, nil
 
 }
@@ -76,76 +144,20 @@ func (s *Service) GetDishesDishID(ctx context.Context, request GetDishesDishIDRe
 
 	dbCtx, dbCancel := context.WithTimeout(ctx, defaultDBTimeout)
 	defer dbCancel()
-	dbErrGroup, dbErrGroupCtx := errgroup.WithContext(dbCtx)
 
-	var dish *domain.Dish
-	var dishRatings *domain.DishRatings
-	dishNotFound := false
-
-	//Get all Ratings for Dish
-	dbErrGroup.Go(func() error {
-		var err error
-		dishRatings, err = s.repo.GetAllRatingsForDish(dbErrGroupCtx, request.DishID)
-		if err != nil {
-			return fmt.Errorf("GetAllRatingsForDish : %v", err)
-		}
-		return nil
-	})
-
-	//Get dish
-	dbErrGroup.Go(func() error {
-		var err error
-		dish, err = s.repo.GetDishByID(dbErrGroupCtx, request.DishID)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				dishNotFound = true
-			}
-			return fmt.Errorf("GetDishByID : %v", err)
-		}
-		return nil
-	})
-
-	//Wait for all jobs and check if there was an error
-	err := dbErrGroup.Wait()
+	basicDishData, err := ports.FetchBasicDishData(dbCtx, s.repo, request.DishID)
 	if err != nil {
-		log.Printf("Job in errgroup failed : %v", err)
-		if dishNotFound {
-			return GetDishesDishID404Response{}, nil
-		}
+		log.Printf("FetchBasicDishData for dishID %v failed : %v", request.DishID, err)
 		return GetDishesDishID500JSONResponse{}, nil
 	}
 
-	//
-	//Assemble response
-	//
-
-	const maxOccurrencesInAnswer = 10
-	occurrences := dish.Occurrences()
-	occurrenceCountForResponse := maxOccurrencesInAnswer
-	if maxOccurrencesInAnswer > len(occurrences) {
-		occurrenceCountForResponse = len(occurrences)
-	}
-	recentOccurrences := make([]types.Date, 0, occurrenceCountForResponse)
-	for i := range occurrences {
-		recentOccurrences = append(recentOccurrences, types.Date{Time: occurrences[i]})
-	}
-
-	ratings := make(map[string]int)
-	for k, v := range dishRatings.Ratings() {
-		ratings[fmt.Sprintf("%v", k)] = v
-	}
-
 	response := GetDishesDishID200JSONResponse{
-		AvgRating:         nil, //updated below if data is available
-		Name:              dish.Name,
-		OccurrenceCount:   len(dish.Occurrences()),
-		Ratings:           ratings,
-		RecentOccurrences: recentOccurrences,
-		ServedAt:          dish.ServedAt,
-	}
-
-	if avgRating, err := dishRatings.AverageRating(); err == nil {
-		response.AvgRating = &avgRating
+		AvgRating:         basicDishData.AvgRating, //updated below if data is available
+		Name:              basicDishData.Name,
+		ServedAt:          basicDishData.ServedAt,
+		OccurrenceCount:   basicDishData.OccurrenceCount,
+		Ratings:           basicDishData.Ratings,
+		RecentOccurrences: basicDishData.RecentOccurrences,
 	}
 
 	return response, nil

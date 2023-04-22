@@ -5,7 +5,7 @@ CONTAINER_NAME="its-tasty-db-integration-test"
 
 
 echo "Starting Mysql DB on ${DB_PORT}"
-sudo docker run --rm --detach --name "${CONTAINER_NAME}" -p 4896:3306 \
+docker run --rm --detach --name "${CONTAINER_NAME}" -p 4896:3306 \
   --env MARIADB_USER=integration_test_user \
   --env MARIADB_PASSWORD=1234 \
   --env MARIADB_ROOT_PASSWORD=rootpw \
@@ -23,4 +23,4 @@ go clean -testcache
 go test -v ./pkg/api/adapters/dishRepo
 
 echo "Shutting down db"
-sudo docker stop "${CONTAINER_NAME}"
+docker stop "${CONTAINER_NAME}"
