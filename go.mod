@@ -11,7 +11,7 @@ require (
 	github.com/getkin/kin-openapi v0.115.0
 	github.com/go-chi/chi/v5 v5.0.8
 	github.com/go-chi/cors v1.2.1
-	github.com/go-co-op/gocron v1.19.0
+	github.com/go-co-op/gocron v1.22.4
 	github.com/jackc/pgx/v5 v5.3.1
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/rubenv/sql-migrate v1.4.0
