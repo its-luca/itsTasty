@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sourcegraph/conc/iter"
-	"github.com/sourcegraph/conc/pool"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports"
 	"log"
 	"time"
+
+	"github.com/sourcegraph/conc/iter"
+	"github.com/sourcegraph/conc/pool"
 )
 
 //go:generate oapi-codegen --config ./server.cfg.yml ../../userAPI.yml
