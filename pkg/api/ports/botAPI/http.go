@@ -57,6 +57,7 @@ func (s *Service) PostCreateOrUpdateDish(ctx context.Context, request PostCreate
 	sanitizeName := func(s string) string {
 		prefixes := []string{
 			`"""YOUR FAVORITES""`,
+			`"YOUR FAVORITES"`,
 			"Begrenztes Angebot :",
 			"BEGRENZTES ANGEBOT:",
 			"VEGANISSIMO: ",
