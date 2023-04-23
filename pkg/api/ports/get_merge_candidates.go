@@ -27,7 +27,6 @@ const MergeCandidatesDefaultSimilarityThresh = 0.55
 // Marker errors domain.ErrNotFound if baseDishID is not found
 func FetchMergeCandidates(ctx context.Context, baseDishID int64, repo domain.DishRepo) ([]MergeCandidate, error) {
 
-	log.Printf("entering GetDishesMergeCandidatesDishID")
 	//
 	// query requested dish + ids of all other dishes
 	//

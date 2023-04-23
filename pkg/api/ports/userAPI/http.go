@@ -65,7 +65,6 @@ func (h *HttpServer) GetDishesMergeCandidatesDishID(ctx context.Context, request
 		}
 		return GetDishesMergeCandidatesDishID500Response{}, nil
 	}
-	log.Printf("all merge candidates: %+v", mergeCandidates)
 
 	respData := make([]GetMergeCandidatesRespEntry, 0)
 	for i := range mergeCandidates {
