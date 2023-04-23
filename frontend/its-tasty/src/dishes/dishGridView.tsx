@@ -1,8 +1,10 @@
 import {
     DataGrid,
     GridColDef,
+    GridPaginationModel,
     GridRenderCellParams,
-    GridRowsProp, GridValidRowModel
+    GridRowSelectionModel,
+    GridRowsProp
 } from '@mui/x-data-grid';
 import type {} from '@mui/x-data-grid/themeAugmentation';
 import {
@@ -87,6 +89,19 @@ export function DishGridView() {
     const allDishIDs = useQuery<GetAllDishesResponse,ApiError>({
         queryKey: ['getGetAllDishes'],
         queryFn: () => DefaultService.getGetAllDishes(),
+        onSuccess:(data) => {
+            const tmp: GridRowsProp = data.data.map(simpleDishEntry => {
+                return {
+                    id: simpleDishEntry.id,
+                    colID: simpleDishEntry.id,
+                    colName: simpleDishEntry.name,
+                    colServedAt: simpleDishEntry.servedAt,
+                    colMergedDishID: simpleDishEntry.mergedDishID
+                }
+            })
+            setGridRows(tmp)
+
+        },
         onError: (error) => {
             console.log(`getMergedDishes failed with ${error.status} - ${error.message}`)
             if( error.status === 401) {
@@ -102,8 +117,25 @@ export function DishGridView() {
             return DefaultService.postMergedDishes(req)},
         onSuccess: (data) => {
             setMutateError(null)
+
+            //update local data without having to refetch from server
+            const selectedIds = new Set(gridRowSelectionModel)
+            setGridRows( (prevRows) => {
+                return prevRows.map( (entry,index) => {
+                    return selectedIds.has(index) ? {...entry, colMergedDishID: data.mergedDishID} : entry
+                })
+            })
+
+            /*
+            //https://mui.com/x/react-data-grid/row-updates/#the-updaterows-method says this should work but apparently you need premium after all
+            gridRowSelectionModel.forEach( rowID => {
+                apiRef.current.updateRows([{ id: rowID, colMergedDishID: data.mergedDishID}])
+
+            })*/
+
+            updateGridRowSelectionModel([])
             return Promise.all([
-                queryClient.invalidateQueries({queryKey: ['getGetAllDishes']}).then(() => allDishIDs.refetch())
+                queryClient.invalidateQueries({queryKey: ['getGetAllDishes']})
             ])
         },
         onError: error => {
@@ -117,8 +149,24 @@ export function DishGridView() {
 
 
 
-    const [selectedRows,setSelectedRows] = useState<GridValidRowModel[]>([]);
-    const [nameForMergedDish,setNamForMergedDish] = useState<string>("");
+
+    const [nameForMergedDish,setNameForMergedDish] = useState<string>("");
+
+    const [gridPaginationModel,setGridPaginationModel] = useState<GridPaginationModel>({pageSize:25,page:0})
+    const [gridRowSelectionModel, setGridRowSelectionModel] = useState<GridRowSelectionModel>([])
+    const updateGridRowSelectionModel = (updatedModel : GridRowSelectionModel) => {
+        if (updatedModel.length === 0) {
+            setNameForMergedDish("")
+        }
+        const selectedIds = new Set(updatedModel)
+        const selection = gridRows.filter(row => selectedIds.has(row.id))
+        if (gridRowSelectionModel.length === 0 && nameForMergedDish === "" && updatedModel.length > 0) {
+            setNameForMergedDish(selection[0].colName)
+        }
+        setGridRowSelectionModel(updatedModel)
+    }
+    const [gridRows, setGridRows] = useState < GridRowsProp>([]);
+
 
 
     if( allDishIDs.isLoading ) {
@@ -150,74 +198,76 @@ export function DishGridView() {
                     </IconButton>
                 }>
         <AlertTitle>{createMutation.error?.message ? createMutation.error.message : "Unknown Error" }</AlertTitle>
-            {createMutation.error?.body.what}
+            {createMutation.error?.body ? createMutation.error.body.what : "Network error"}
     </Alert>
 
 
-
-    const rows : GridRowsProp = allDishIDs.data.data.map( simpleDishEntry => {
-        return {
-            id: simpleDishEntry.id,
-            colID: simpleDishEntry.id,
-            colName: simpleDishEntry.name,
-            colServedAt: simpleDishEntry.servedAt,
-            colMergedDishID: simpleDishEntry.mergedDishID
-        }
-    })
-
+ 
 
     return (
         <Stack sx={{ maxHeight:'100%'}}>
             {mutateError && mutateErrorView}
-            <Container sx={{margin:"10px", display:"flex",justifyContent:"space-around"}}
+            <Container sx={{margin:"10px",gap:"10px", display:"flex",justifyContent:"space-around",alignItems:"center"}}
             >
                 <TextField id={"dishGridViewMergedDishNameTextField"}
                            fullWidth={true}
                            variant={"outlined"}
                            label={"Name for merged Dish"}
-                           disabled={selectedRows.length < 1}
+                           disabled={gridRowSelectionModel.length < 1}
                            value={nameForMergedDish}
                            onChange={(event: ChangeEvent<HTMLInputElement>) => {
                                event.stopPropagation()
-                               setNamForMergedDish(event.target.value);
+                               setNameForMergedDish(event.target.value);
                            }}
                 />
                     <Button
                         variant={"outlined"}
-                        disabled={ nameForMergedDish === "" || selectedRows.length < 2}
+                    disabled={nameForMergedDish === "" || gridRowSelectionModel.length < 2}
                         onClick={() => {
+                            const selectedIds = new Set(gridRowSelectionModel)
                             const req : CreateMergedDishReq = {
                                 name: nameForMergedDish,
-                                mergedDishes: selectedRows.map( row => row.colID)
+                                mergedDishes: gridRows.filter((_,index) => selectedIds.has(index)).map(entry => entry.colID)
                             }
                             createMutation.mutate(req)
                         }}
                     >
-                        Merge Dishes from selected Rows
+                    {"Merge " + gridRowSelectionModel.length + " Dishes from selected Rows"}
+                    </Button>
+                    <Button
+                        variant={"outlined"}
+                        disabled={gridRowSelectionModel.length === 0}
+                        color={"error"}
+                        onClick={() => updateGridRowSelectionModel([]) }
+                    >
+                        Clear Selection
                     </Button>
 
             </Container>
 
 
             <DataGrid
-                rows={rows}
+                rows={gridRows}
                 columns={columns}
                 autoHeight={true}
                 checkboxSelection
                 disableRowSelectionOnClick
-                onRowSelectionModelChange={ (model,details) => {
-                    if( selectedRows.length > 0 && nameForMergedDish !== "" && model.length === 0 ) {
-                        setNamForMergedDish("")
-                    }
-                    const selectedIds = new Set(model)
-                    const selection = rows.filter(row => selectedIds.has(row.id))
-                    if( selectedRows.length === 0 && nameForMergedDish === "" && model.length > 0 ) {
-                        setNamForMergedDish(selection[0].colName)
-                    }
-                    setSelectedRows(selection)
+                rowSelectionModel={gridRowSelectionModel}
+                onRowSelectionModelChange={ updatedModel => updateGridRowSelectionModel(updatedModel) }
+                paginationModel={gridPaginationModel}
+                onPaginationModelChange={model => {
+                    setGridPaginationModel(model)
                 }}
+
                 initialState={{
-                    pagination: {paginationModel:{pageSize: 25}}
+                    sorting: {
+                        sortModel: [
+                            {
+                                field: "colID",
+                                sort: "desc",
+                            }
+                        ]
+                    }
                 }}
             />
         </Stack>
