@@ -1,4 +1,4 @@
-import {Alert, AlertTitle, Avatar, Checkbox, List, ListItem, ListItemAvatar, ListItemText, ListSubheader, Paper, Stack, Tooltip, Typography} from "@mui/material";
+import {Alert, AlertTitle, Avatar, Checkbox, IconButton, Link, List, ListItem, ListItemAvatar, ListItemText, ListSubheader, Paper, Stack, TextField, Tooltip, Typography} from "@mui/material";
 import Button from "@mui/material/Button";
 import Container from "@mui/material/Container";
 import {
@@ -11,10 +11,14 @@ import {
 } from "./services/userAPI";
 import {useAuthContext} from "./AuthContext";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
-import {useEffect, useState} from "react";
+import {ChangeEvent, useEffect, useState} from "react";
 import {SimpleMergedDishView} from "./mergedDishes/simpleMergedDishView";
 import {DishVIew} from "./DishView";
 import {useNavigate} from "react-router-dom";
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import RestoreIcon from '@mui/icons-material/Restore';
+import { Link as RRLink } from "react-router-dom";
+import urlJoin from "url-join";
 
 
 interface CreateButtonProps {
@@ -23,7 +27,7 @@ interface CreateButtonProps {
     // the other dish required to create a merged dish
     targetDishIds: Set<number>,
     // name for the merged dish
-    mergedDishName: string
+    mergedDishName: string|null
     // Issue data reload in parent component
     refetchCallback : () => Promise<any>
 
@@ -38,10 +42,10 @@ export function CreateButton(props: CreateButtonProps) {
         console.log("authContext undefined")
     }
 
-    const createMutation = useMutation<CreateMergedDishResp,ApiError>({
-        mutationFn: ( ) => {
+    const createMutation = useMutation<CreateMergedDishResp,ApiError,string>({
+        mutationFn: (mergedDishName ) => {
             const createReq :CreateMergedDishReq = {
-                mergedDishes: [...Array.from(props.targetDishIds),props.baseDishId], name: props.mergedDishName
+                mergedDishes: [...Array.from(props.targetDishIds),props.baseDishId], name: mergedDishName
             };
             return DefaultService.postMergedDishes(createReq)},
         onSuccess: (data) => {
@@ -60,9 +64,9 @@ export function CreateButton(props: CreateButtonProps) {
     });
 
 
-    if( createMutation.isIdle) {
+    if (createMutation.isIdle && (props.mergedDishName !== null)) {
         return (
-            <Button variant={"contained"} onClick={() => createMutation.mutate()}>Create New Merged Dish</Button>
+            <Button variant={"contained"} onClick={() => createMutation.mutate(props.mergedDishName!)}>Create New Merged Dish</Button>
         )
     }
 
@@ -163,12 +167,16 @@ export function ViewDishMergeCandidates(props :ViewDishMergeCandidatesProps) {
         console.log("authContext undefined")
     }
 
+    const [nameForMergedDish,setNameForMergedDish] = useState<string|null>(null)
     const navigate = useNavigate()
     const [redirectCountdown,setRedirectCountdown] = useState<number|undefined>(undefined)
 
     const dishQuery = useQuery<GetDishResp,ApiError,GetDishResp>({
         queryKey: ['getDishes',props.dishID],
         queryFn: () => DefaultService.getDishes(props.dishID),
+        onSuccess: (data) => {
+            setNameForMergedDish(data.name)
+        },
         onError: (error) => {
             if( error.status === 401) {
                 authContext?.setAuthStatus(false)
@@ -294,10 +302,19 @@ export function ViewDishMergeCandidates(props :ViewDishMergeCandidatesProps) {
                         individualCandidates.map(x =>
                             <ListItem key={x.dishID}>
                                  <Checkbox onChange={(e) => {
-                                    let updatedSelection = new Set<number>(selectedDishes)
-                                    e.target.checked ? updatedSelection.add(x.dishID) : updatedSelection.delete(x.dishID)
-                                    console.log(`updatedSelection: ${Array.from(updatedSelection).join(",")}`)
-                                    setSelectedDishes(updatedSelection)
+                                    setSelectedDishes( prev => {
+                                        let updatedSelection = new Set<number>(prev)
+
+                                        if( e.target.checked ) {
+                                            updatedSelection.add(x.dishID)
+                                        } else {
+                                            updatedSelection.delete(x.dishID)
+                                            if( nameForMergedDish === x.dishName ) {
+                                                setNameForMergedDish(null)
+                                            }
+                                        }
+                                        return updatedSelection
+                                    })
                                 }} />
                                     <Tooltip title={"Dish ID"}>
                                         <ListItemAvatar>
@@ -306,13 +323,50 @@ export function ViewDishMergeCandidates(props :ViewDishMergeCandidatesProps) {
                                             </Avatar>
                                         </ListItemAvatar>
                                     </Tooltip>
-                                    <ListItemText primary={x.dishName} />
+                                    <Link
+                                        component={RRLink}
+                                        to={urlJoin('/dish', x.dishID.toString())}
+                                    >
+                                        <ListItemText primary={x.dishName} />
+                                    </Link>
+
+                                    <Tooltip title={"Select as name for Merged Dish"}>
+                                        <IconButton
+                                            onClick={() => setNameForMergedDish(x.dishName)}
+                                        >
+                                            <ContentCopyIcon/>
+                                        </IconButton>
+                                    </Tooltip>
                                     </ListItem>
                         )
                     }
-                    <Container sx={{ display: "flex", flexDirection: "row-reverse" }}>
+                    <Container sx={{ display: "flex", gap:"10px", flexDirection: "row" }}>
+                        <TextField id={"newMergedDishNameTextField"}
+                            fullWidth={true}
+                            variant={"outlined"}
+                            label={"Name for Merged Dish"}
+                            value={nameForMergedDish === null ? "" : nameForMergedDish}
+                            multiline={true}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                                if( event.target.value === "" ) {
+                                    setNameForMergedDish(null)
+                                } else {
+                                    setNameForMergedDish(event.target.value);
+                                }
+                            }}
+                        />
+                        <Tooltip title={"Reset merged dish name"}>
+                            <IconButton
+                                disabled={nameForMergedDish === dishQuery.data.name}
+                                onClick={() => {
+                                    setNameForMergedDish(dishQuery.data.name)
+                                }}
+                            >
+                                <RestoreIcon/>
+                            </IconButton>
+                        </Tooltip>
                         <CreateButton
-                            mergedDishName={dishQuery.data.name}
+                            mergedDishName={nameForMergedDish}
                             baseDishId={props.dishID}
                             targetDishIds={selectedDishes}
                             refetchCallback={refetchCallback}
