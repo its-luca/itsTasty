@@ -10,7 +10,7 @@ import {
     TableCell,
     TableContainer,
     TableRow,
-    Theme, TextField, AlertTitle, Alert
+    Theme, TextField, AlertTitle, Alert, Link
 } from "@mui/material";
 import Container from "@mui/material/Container";
 import {useAuthContext} from "../AuthContext";
@@ -25,6 +25,11 @@ import Button from "@mui/material/Button";
 import {useNavigate} from "react-router-dom";
 import CloseIcon from '@mui/icons-material/Close';
 import Box from "@mui/material/Box";
+import EditIcon from '@mui/icons-material/Edit';
+import CheckIcon from '@mui/icons-material/Check';
+import { Link as RRLink } from "react-router-dom";
+import urlJoin from "url-join";
+import AddBoxIcon from '@mui/icons-material/AddBox';
 
 
 
@@ -58,12 +63,13 @@ export function MergedDishView(props :MergedDishViewProps) {
 
     const queryClient = useQueryClient()
 
-    const updateContainedDishes = useMutation<number,ApiError,MergedDishUpdateReq>({
+    const updateMergedDish = useMutation<number,ApiError,MergedDishUpdateReq>({
         mutationFn: (req) => {
             return DefaultService.patchMergedDishes(props.mergedDishID, req)
         },
         onSuccess: () => {
-            //the hard re-fetch in the then solves the issue that data would not be re-fetched if there is no cache
+            setAddDishIDTextField("")
+            //the hard re-fetch in the "then" solves the issue that data would not be re-fetched if there is no cache
             //entry
             //I observed this to happen, when adding to th merged dish in Tab A and viewing the merged dish in tab b
             //Even when refreshing tab b, I did not get a query cache entry in tab B. Maybe this is some weird
@@ -99,6 +105,9 @@ export function MergedDishView(props :MergedDishViewProps) {
     })
 
 
+    const [nameEditState, setNameEditState] = useState(false)
+    const [editedName,setEditedName] = useState("")
+
     if( query.isLoading ) {
         return (
             <p>Loading...</p>
@@ -120,6 +129,70 @@ export function MergedDishView(props :MergedDishViewProps) {
     const sxLeftColum : SxProps<Theme> = {
         fontWeight:"medium",
     };
+
+    let nameTableRow = (
+        <TableRow>
+            <TableCell component={Paper}>
+                <Typography variant={variantLeftColumn}>Name</Typography>
+            </TableCell>
+            <TableCell sx={{display:"flex",justifyContent:"space-between"}} component={Paper}>
+                    <Typography sx={sxLeftColum} >{query.data.name}</Typography>
+                    <Tooltip title={"Edit"}>
+                        <IconButton
+                            onClick={() => {
+                                setNameEditState(true)
+                                setEditedName(query.data.name)
+                            }}
+                        >
+                           <EditIcon/>
+                        </IconButton>
+                    </Tooltip>
+            </TableCell>
+        </TableRow>
+      
+    )
+    if( nameEditState ) {
+        nameTableRow = (
+            <TableRow>
+                <TableCell component={Paper}>
+                    <Typography variant={variantLeftColumn}>Name</Typography>
+                </TableCell>
+                <TableCell sx={{ display: "flex", justifyContent: "space-between" }}  component={Paper}>
+                        <TextField
+                            multiline={true}
+                            sx={sxLeftColum}
+                            value={editedName}
+                            title={"Updated Dish Name"}
+                            onChange={(e) => setEditedName(e.target.value)}
+                        >
+
+                        </TextField>
+                        <Box>
+                            <Tooltip title={"Accept"}>
+                                <IconButton
+                                    onClick={() => {
+                                        updateMergedDish.mutate({name: editedName})
+                                        setNameEditState(false)
+                                    }}
+                                >
+                                    <CheckIcon />
+                                </IconButton>
+                            </Tooltip>
+                            <Tooltip title={"Cancel"}>
+                                <IconButton
+                                    onClick={() => {
+                                        setNameEditState(false)
+                                    }}
+                                >
+                                    <CloseIcon/>
+                                </IconButton>
+                            </Tooltip>
+                        </Box>
+                       
+                </TableCell>
+            </TableRow>
+        )
+    }
     return (
         <Container
             maxWidth="sm"
@@ -146,14 +219,8 @@ export function MergedDishView(props :MergedDishViewProps) {
             <TableContainer component={Paper} elevation={10} >
                 <Table>
                     <TableBody>
-                        <TableRow>
-                            <TableCell  component={Paper}>
-                                <Typography variant={variantLeftColumn}>Name</Typography>
-                            </TableCell>
-                            <TableCell component={Paper}>
-                                <Typography sx={sxLeftColum} >{query.data.name}</Typography>
-                            </TableCell>
-                        </TableRow>
+                        
+                        {nameTableRow}
 
                         <TableRow>
                             <TableCell component={Paper}>
@@ -168,12 +235,12 @@ export function MergedDishView(props :MergedDishViewProps) {
                             <TableCell   component={Paper}>
                                 <Typography  variant={variantLeftColumn}>Contained Dishes</Typography>
                             </TableCell>
-                            <TableCell component={Paper}>
+                            <TableCell sx={{padding:"0"}} component={Paper}>
                                 <List>
                                     {
                                         query.data.containedDishes.sort((a,b) => a.id === b.id ? 0 : a.id < b.id ? -1 : 1  ).map(x => {
                                             return (
-                                                <ListItem key={"contained-dish"+x.id}>
+                                                <ListItem sx={{ display: "flex", justifyContent: "space-between" }} key={"contained-dish"+x.id}>
                                                     <Tooltip title={"Dish ID"}>
                                                         <ListItemAvatar>
                                                             <Avatar>
@@ -181,12 +248,17 @@ export function MergedDishView(props :MergedDishViewProps) {
                                                             </Avatar>
                                                         </ListItemAvatar>
                                                     </Tooltip>
-                                                    <ListItemText primary={x.name} />
+                                                    <Link
+                                                        component={RRLink}
+                                                        to={urlJoin('/dish', x.id.toString())}
+                                                    >
+                                                        <ListItemText primary={x.name} />
+                                                    </Link>
                                                     {query.data.containedDishes.length > 2 &&
                                                         <Tooltip title={"Remove from merged dish"}>
                                                             <IconButton
                                                                 aria-label={"remove"}
-                                                                onClick={() => updateContainedDishes.mutate({addDishIDs:[],removeDishIDs:[x.id]})}
+                                                                onClick={() => updateMergedDish.mutate({addDishIDs:[],removeDishIDs:[x.id]})}
                                                             >
                                                                 <DeleteIcon/>
                                                             </IconButton>
@@ -199,31 +271,44 @@ export function MergedDishView(props :MergedDishViewProps) {
                                 </List>
                             </TableCell>
                         </TableRow>
+
+                        <TableRow>
+                            <TableCell component={Paper}>
+                                <Typography variant={variantLeftColumn}>Add Dish</Typography>
+                            </TableCell>
+                            <TableCell sx={{ display: "flex", justifyContent: "space-between" }}  component={Paper}>
+                                <TextField id={"add dish text field"}
+                                    variant={"outlined"}
+                                    label={"Dish ID"}
+                                    inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                                        setAddDishIDTextField(event.target.value);
+                                    }}
+                                    value={addDishIDTextField}
+                                />
+                                <Tooltip title={"Add dish"}>
+                                    <Box>
+                                        <IconButton
+                                        disabled={isNaN(+addDishIDTextField) || addDishIDTextField === ""}
+                                        onClick={() => updateMergedDish.mutate({ addDishIDs: [Number(addDishIDTextField)], removeDishIDs: [] })}
+                                        >
+                                        <AddBoxIcon/>
+                                    </IconButton>
+                                    </Box>
+                                    
+                                </Tooltip>
+                            </TableCell>
+                        </TableRow>
+
+                        <TableRow>
+                            <TableCell colSpan={2}   >
+                                <DeleteButtonWithConfirmation deleteMergedDish={() => deleteMergedDishMutation.mutate()} />
+                            </TableCell>
+                        </TableRow>
+
                     </TableBody>
                 </Table>
             </TableContainer>
-            <Container sx={{mt:"5px",display:"flex",justifyContent:"space-evenly",flex:"flex-grow"}}>
-                <TextField id={"add dish text field"}
-                           variant={"outlined"}
-                           label={"Dish ID"}
-                           inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
-                           onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                               setAddDishIDTextField(event.target.value);
-                           }}
-                />
-                <Button
-                    variant={"contained"}
-                    disabled={ isNaN(+addDishIDTextField) || addDishIDTextField === "" }
-                    onClick={() => updateContainedDishes.mutate({addDishIDs:[Number(addDishIDTextField)],removeDishIDs:[]})}
-
-                >
-                    Add Dish
-                </Button>
-
-            </Container>
-            <Container sx={{mt:"5px",display:"flex",justifyContent:"center",flex:"flex-grow"}}>
-                <DeleteButtonWithConfirmation deleteMergedDish={() => deleteMergedDishMutation.mutate() }/>
-            </Container>
         </Container>
     )
 }
@@ -245,8 +330,8 @@ function DeleteButtonWithConfirmation(props : DeleteButtonWithConfirmationProps)
 
     return (
         <Box>
-            <Button variant={"contained"} color={"error"} onClick={handleClickOpen}>
-                Delete Merged Dish
+            <Button fullWidth={true} variant={"contained"} color={"error"} onClick={handleClickOpen}>
+                Delete
             </Button>
             <Dialog
                 open={open}
