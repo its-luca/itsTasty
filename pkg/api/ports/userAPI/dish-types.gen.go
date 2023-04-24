@@ -141,6 +141,9 @@ type MergedDishUpdateReq struct {
 	// AddDishIDs If present, these IDs are added to the merged dish.
 	AddDishIDs *[]int64 `json:"addDishIDs,omitempty"`
 
+	// Name If present, the merged dish will be renamed to this
+	Name *string `json:"name,omitempty"`
+
 	// RemoveDishIDs If present, these IDs are removed from the merged dish. At least two dish must remain. \ To delete a merge dish, use DELETE instead of PATCH
 	RemoveDishIDs *[]int64 `json:"removeDishIDs,omitempty"`
 }
