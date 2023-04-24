@@ -206,6 +206,9 @@ components:
             type: integer
             format: int64
             description: dish ID
+        name:
+          description: If present, the merged dish will be renamed to this
+          type: string
 
     MergedDishManagementData:
       description: Management Data for merged dish
