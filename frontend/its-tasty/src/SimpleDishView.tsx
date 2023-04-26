@@ -1,8 +1,10 @@
 import {useEffect, useState} from "react";
-import {ApiError, DefaultService, GetDishResp} from "./services/userAPI";
+import {ApiError, DefaultService, GetDishResp, GetMergeCandidatesResp} from "./services/userAPI";
 import {useAuthContext} from "./AuthContext";
 import Typography from "@mui/material/Typography";
 import {
+    Box,
+    IconButton,
     Link,
     Paper,
     Rating, Skeleton, Stack,
@@ -11,10 +13,15 @@ import {
     TableCell,
     TableContainer,
     TableRow,
+    Tooltip,
 } from "@mui/material";
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { Link as RRLink} from "react-router-dom";
 import urlJoin from "url-join";
+import FiberNewIcon from '@mui/icons-material/FiberNew';
+import MergeIcon from '@mui/icons-material/Merge';
+import { useQuery } from "@tanstack/react-query";
+
 
 
 export function SimpleDishViewMock() {
@@ -133,6 +140,12 @@ export function SimpleDishView(props : SimpleDishViewProps) {
         fetchDish(dishID)
     }
 
+    const queryMergeCandidates = useQuery<GetMergeCandidatesResp,ApiError>({
+        queryKey: ['getDishesMergeCandidates',props.dishID],
+        queryFn: () =>DefaultService.getDishesMergeCandidates(props.dishID),
+    })
+    const haveMergeCandidates = queryMergeCandidates.isSuccess && queryMergeCandidates.data.candidates.length > 0 && dishData !== undefined && dishData.mergedDishID === undefined
+
     useEffect( () => {
         console.log("useEffect is running")
         fetchDish(props.dishID)
@@ -167,6 +180,7 @@ export function SimpleDishView(props : SimpleDishViewProps) {
         ratings.push(count)
     }
 
+
     return (
         <Stack
             maxWidth="sm"
@@ -177,13 +191,29 @@ export function SimpleDishView(props : SimpleDishViewProps) {
                 <Table>
                     <TableBody>
                         <TableRow >
-                            <TableCell  align="center" colSpan={2} >
+                            <TableCell sx={{paddingBottom:"0px"}} align="center" colSpan={2} >
                                 <Link
                                     component={RRLink}
                                     to={urlJoin('/dish',props.dishID.toString())}
                                     sx={{fontSize:"large",fontWeight:"bold",textAlign:"center"}} >
                                     {dishData.name}
                                 </Link>
+                                <Tooltip title={"New Dish"}>
+                                    <FiberNewIcon
+                                        sx={{ visibility: dishData.occurrenceCount === 1 ? "visible" : "hidden" }}
+                                        fontSize="large"
+                                    />
+                                </Tooltip>
+                                <Box sx={{display:"flex",justifyContent:"center",alignItems:"center"}}>   
+                                            <Tooltip title={"Click to check merge candidates"}>
+                                            <IconButton
+                                            sx={{ visibility: haveMergeCandidates ? "visible" : "hidden" }}
+                                                    onClick={() => window.open(urlJoin(window.location.origin,'/mergeCandidates',props.dishID.toString()))}
+                                            >
+                                                <MergeIcon fontSize="large"/>
+                                            </IconButton>
+                                        </Tooltip>
+                                </Box>      
                             </TableCell>
                         </TableRow>
 
