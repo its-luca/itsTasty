@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sourcegraph/conc/iter"
-	"github.com/sourcegraph/conc/pool"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports"
 	"log"
 	"time"
+
+	"github.com/sourcegraph/conc/iter"
+	"github.com/sourcegraph/conc/pool"
 )
 
 //go:generate oapi-codegen --config ./server.cfg.yml ../../userAPI.yml
@@ -65,7 +66,6 @@ func (h *HttpServer) GetDishesMergeCandidatesDishID(ctx context.Context, request
 		}
 		return GetDishesMergeCandidatesDishID500Response{}, nil
 	}
-	log.Printf("all merge candidates: %+v", mergeCandidates)
 
 	respData := make([]GetMergeCandidatesRespEntry, 0)
 	for i := range mergeCandidates {
@@ -253,6 +253,11 @@ func (h *HttpServer) PatchMergedDishesMergedDishID(ctx context.Context, request 
 	// Fetch dishes for adding/removing from merged dish
 	//
 
+	if request.Body.Name != nil && *request.Body.Name == "" {
+		what := "Name may not be empty string"
+		return PatchMergedDishesMergedDishID400JSONResponse{What: &what}, nil
+	}
+
 	mapper := iter.Mapper[int64, *domain.Dish]{}
 	addDishes := make([]*domain.Dish, 0)
 	if addDishIDs := request.Body.AddDishIDs; addDishIDs != nil {
@@ -300,7 +305,6 @@ func (h *HttpServer) PatchMergedDishesMergedDishID(ctx context.Context, request 
 	// Update merged dish
 	//
 
-	//add dishes
 	err := h.repo.UpdateMergedDishByID(dbCtx, request.MergedDishID, func(current *domain.MergedDish) (*domain.MergedDish, error) {
 		for _, v := range addDishes {
 			if err := current.AddDish(v); err != nil {
@@ -312,6 +316,10 @@ func (h *HttpServer) PatchMergedDishesMergedDishID(ctx context.Context, request 
 			if err := current.RemoveDish(v); err != nil {
 				return nil, fmt.Errorf("cannot remove dish %v  : %w", *v, err)
 			}
+		}
+
+		if request.Body.Name != nil {
+			current.Name = *request.Body.Name
 		}
 
 		return current, nil
