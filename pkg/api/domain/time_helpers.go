@@ -17,7 +17,7 @@ func (d DayPrecisionTime) PrevDay() DayPrecisionTime {
 	return NewDayPrecisionTime(d.Add(-24 * (time.Hour)))
 }
 
-func (d DayPrecisionTime) NextDy() DayPrecisionTime {
+func (d DayPrecisionTime) NextDay() DayPrecisionTime {
 	return NewDayPrecisionTime(d.Add(24 * time.Hour))
 }
 

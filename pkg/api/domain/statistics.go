@@ -19,6 +19,10 @@ func (u UsersOnVacation) UserHasVacation(user string, day DayPrecisionTime) bool
 	return ok
 }
 
+func NewUsersOnVacation(vacations map[DayPrecisionTime]map[string]interface{}) UsersOnVacation {
+	return UsersOnVacation{vacations: vacations}
+}
+
 type RatingStreak struct {
 	Begin DayPrecisionTime
 	End   DayPrecisionTime
@@ -42,6 +46,13 @@ func groupMemberRated(r []DishRating, group map[string]interface{}) bool {
 		}
 	}
 	return false
+}
+
+func NewRatingStreakFromDB(begin, end DayPrecisionTime) RatingStreak {
+	return RatingStreak{
+		Begin: begin,
+		End:   end,
+	}
 }
 
 // NewRatingStreak calculates the length of the rating streak of group for the given ratings
