@@ -208,7 +208,7 @@ export function SimpleDishView(props : SimpleDishViewProps) {
                                             <Tooltip title={"Click to check merge candidates"}>
                                             <IconButton
                                             sx={{ visibility: haveMergeCandidates ? "visible" : "hidden" }}
-                                                    onClick={() => window.open(urlJoin(window.location.origin,'/mergeCandidates',props.dishID.toString()))}
+                                                    onClick={() => window.open(urlJoin(process.env.REACT_APP_PUBLIC_URL!,'/mergeCandidates',props.dishID.toString()))}
                                             >
                                                 <MergeIcon fontSize="large"/>
                                             </IconButton>
