@@ -19,3 +19,12 @@ Furthermore, you need to generate a local TLS cert once with `./scripts/gen-loca
 cookies requires serving via TLS.
 
 The frontend should automatically pick up its config from `frontend/its-tasty/.env.development`
+
+## Generate SQL Code
+This repo users [sqlboiler](https://github.com/volatiletech/sqlboiler) to manage sql boilerplate code and
+[sql-migrate](https://github.com/rubenv/sql-migrate) to manage db migrations.
+To change sth. in the db
+1) Spin up a docker container with postgres using the credentials from `./scripts/dev.env`. You can use `its-tasty-db`
+from the `docker-compose.yml`. Just make sure to erase the db volume to get a fresh state.
+2) Run `./scripts/sql-migrate-dev-db.sh`
+3) Run `./scripts/sqlboiler-generate-dev.sh`
