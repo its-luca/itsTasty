@@ -2,6 +2,7 @@ package dishRepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +32,8 @@ func Test_NewPostgresRepo(t *testing.T) {
 }
 
 func Test_Postgres_RunCommon(t *testing.T) {
-	runCommonDbTests(t, func() (domain.DishRepo, factoryCleanupFunc, error) {
+
+	commonFactory := func() (*PostgresRepo, factoryCleanupFunc, error) {
 		db, err := testutils.GlobalDockerPool.GetPostgresIntegrationTestDB()
 		if err != nil {
 			t.Fatalf("GetPostgresIntegrationTestDB failed : %v", err)
@@ -43,15 +45,26 @@ func Test_Postgres_RunCommon(t *testing.T) {
 		}
 
 		cleanupFunc := func() error {
-			err1 := db.Close()
-			err2 := testutils.GlobalDockerPool.Cleanup()
-			if err1 != nil || err2 != nil {
-				return fmt.Errorf("db close err: %v ; cleanup err : %v", err1, err2)
+			err1 := repo.DropRepo(context.Background())
+			err2 := db.Close()
+			err3 := testutils.GlobalDockerPool.Cleanup()
+			err := errors.Join(err1, err2, err3)
+			if err != nil {
+				return fmt.Errorf("cleanupFunc failed : %v", err)
 			}
 			return nil
 		}
 		return repo, cleanupFunc, nil
-	})
+	}
+
+	dishFactory := func() (domain.DishRepo, factoryCleanupFunc, error) {
+		return commonFactory()
+	}
+	streakFactory := func() (domain.RatingStreakRepo, factoryCleanupFunc, error) {
+		return commonFactory()
+	}
+
+	runCommonDbTests(t, dishFactory, streakFactory, commonFactory)
 }
 
 func Test_arrayDiff(t *testing.T) {
