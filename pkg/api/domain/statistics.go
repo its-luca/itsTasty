@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"sort"
 	"time"
 )
@@ -19,6 +20,7 @@ func (u UsersOnVacation) UserHasVacation(user string, day DayPrecisionTime) bool
 	return ok
 }
 
+// NewUsersOnVacation expects a map from dates to users who have vacation on that date
 func NewUsersOnVacation(vacations map[DayPrecisionTime]map[string]interface{}) UsersOnVacation {
 	return UsersOnVacation{vacations: vacations}
 }
@@ -55,17 +57,16 @@ func NewRatingStreakFromDB(begin, end DayPrecisionTime) RatingStreak {
 	}
 }
 
+var ErrNoStreak = errors.New("no streak")
+
 // NewRatingStreak calculates the length of the rating streak of group for the given ratings
 // Days that are not workdays or on which the whole group had vacation do not break the streak
-// An "empty" Rating Streak has Begin and End set to "today"
+// Marker errors: ErrNoStreak
 func NewRatingStreak(today DayPrecisionTime, ratings []DishRating, vacations UsersOnVacation,
-	isHolidayOrWeekend map[DayPrecisionTime]bool, group map[string]interface{}) RatingStreak {
+	isHolidayOrWeekend map[DayPrecisionTime]bool, group map[string]interface{}) (RatingStreak, error) {
 
 	if len(group) == 0 {
-		return RatingStreak{
-			Begin: today,
-			End:   today,
-		}
+		return RatingStreak{}, ErrNoStreak
 	}
 
 	//sort slice such that ratings[0] is the most recent rating/vote
@@ -97,17 +98,21 @@ func NewRatingStreak(today DayPrecisionTime, ratings []DishRating, vacations Use
 		}
 
 		streakStart = streakStart.PrevDay()
-		continue
+	}
+	streakStart = streakStart.NextDay()
+
+	if streakStart.After(today.Time) {
+		return RatingStreak{}, ErrNoStreak
 	}
 
 	return RatingStreak{
 		Begin: streakStart,
 		End:   today,
-	}
+	}, nil
 
 }
 
-// LengthInDays of the streak. A streak start started and ended today has length 0
+// LengthInDays of the streak. A streak that starts and ends on the same day has length 1
 func (r RatingStreak) LengthInDays() int {
-	return int(r.End.Time.Sub(r.Begin.Time) / (24 * time.Hour))
+	return int(r.End.Time.Sub(r.Begin.Time)/(24*time.Hour)) + 1
 }
