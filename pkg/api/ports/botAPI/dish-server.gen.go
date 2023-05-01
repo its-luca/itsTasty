@@ -101,6 +101,9 @@ type ClientInterface interface {
 
 	// GetDishesDishID request
 	GetDishesDishID(ctx context.Context, dishID int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetStatisticsCurrentVotingStreaks request
+	GetStatisticsCurrentVotingStreaks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) PostCreateOrUpdateDishWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -129,6 +132,18 @@ func (c *Client) PostCreateOrUpdateDish(ctx context.Context, body PostCreateOrUp
 
 func (c *Client) GetDishesDishID(ctx context.Context, dishID int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetDishesDishIDRequest(c.Server, dishID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetStatisticsCurrentVotingStreaks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetStatisticsCurrentVotingStreaksRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +228,33 @@ func NewGetDishesDishIDRequest(server string, dishID int64) (*http.Request, erro
 	return req, nil
 }
 
+// NewGetStatisticsCurrentVotingStreaksRequest generates requests for GetStatisticsCurrentVotingStreaks
+func NewGetStatisticsCurrentVotingStreaksRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/statistics/currentVotingStreaks")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -263,6 +305,9 @@ type ClientWithResponsesInterface interface {
 
 	// GetDishesDishID request
 	GetDishesDishIDWithResponse(ctx context.Context, dishID int64, reqEditors ...RequestEditorFn) (*GetDishesDishIDResponse, error)
+
+	// GetStatisticsCurrentVotingStreaks request
+	GetStatisticsCurrentVotingStreaksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatisticsCurrentVotingStreaksResponse, error)
 }
 
 type PostCreateOrUpdateDishResponse struct {
@@ -312,6 +357,28 @@ func (r GetDishesDishIDResponse) StatusCode() int {
 	return 0
 }
 
+type GetStatisticsCurrentVotingStreaksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CurrentVotingStreakResp
+}
+
+// Status returns HTTPResponse.Status
+func (r GetStatisticsCurrentVotingStreaksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetStatisticsCurrentVotingStreaksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // PostCreateOrUpdateDishWithBodyWithResponse request with arbitrary body returning *PostCreateOrUpdateDishResponse
 func (c *ClientWithResponses) PostCreateOrUpdateDishWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostCreateOrUpdateDishResponse, error) {
 	rsp, err := c.PostCreateOrUpdateDishWithBody(ctx, contentType, body, reqEditors...)
@@ -336,6 +403,15 @@ func (c *ClientWithResponses) GetDishesDishIDWithResponse(ctx context.Context, d
 		return nil, err
 	}
 	return ParseGetDishesDishIDResponse(rsp)
+}
+
+// GetStatisticsCurrentVotingStreaksWithResponse request returning *GetStatisticsCurrentVotingStreaksResponse
+func (c *ClientWithResponses) GetStatisticsCurrentVotingStreaksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatisticsCurrentVotingStreaksResponse, error) {
+	rsp, err := c.GetStatisticsCurrentVotingStreaks(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetStatisticsCurrentVotingStreaksResponse(rsp)
 }
 
 // ParsePostCreateOrUpdateDishResponse parses an HTTP response from a PostCreateOrUpdateDishWithResponse call
@@ -411,6 +487,32 @@ func ParseGetDishesDishIDResponse(rsp *http.Response) (*GetDishesDishIDResponse,
 	return response, nil
 }
 
+// ParseGetStatisticsCurrentVotingStreaksResponse parses an HTTP response from a GetStatisticsCurrentVotingStreaksWithResponse call
+func ParseGetStatisticsCurrentVotingStreaksResponse(rsp *http.Response) (*GetStatisticsCurrentVotingStreaksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetStatisticsCurrentVotingStreaksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CurrentVotingStreakResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
@@ -419,6 +521,9 @@ type ServerInterface interface {
 
 	// (GET /dishes/{dishID})
 	GetDishesDishID(w http.ResponseWriter, r *http.Request, dishID int64)
+
+	// (GET /statistics/currentVotingStreaks)
+	GetStatisticsCurrentVotingStreaks(w http.ResponseWriter, r *http.Request)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -466,6 +571,23 @@ func (siw *ServerInterfaceWrapper) GetDishesDishID(w http.ResponseWriter, r *htt
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDishesDishID(w, r, dishID)
+	})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// GetStatisticsCurrentVotingStreaks operation middleware
+func (siw *ServerInterfaceWrapper) GetStatisticsCurrentVotingStreaks(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{""})
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStatisticsCurrentVotingStreaks(w, r)
 	})
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -594,6 +716,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/dishes/{dishID}", wrapper.GetDishesDishID)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/statistics/currentVotingStreaks", wrapper.GetStatisticsCurrentVotingStreaks)
+	})
 
 	return r
 }
@@ -683,6 +808,30 @@ func (response GetDishesDishID500JSONResponse) VisitGetDishesDishIDResponse(w ht
 	return json.NewEncoder(w).Encode(response)
 }
 
+type GetStatisticsCurrentVotingStreaksRequestObject struct {
+}
+
+type GetStatisticsCurrentVotingStreaksResponseObject interface {
+	VisitGetStatisticsCurrentVotingStreaksResponse(w http.ResponseWriter) error
+}
+
+type GetStatisticsCurrentVotingStreaks200JSONResponse CurrentVotingStreakResp
+
+func (response GetStatisticsCurrentVotingStreaks200JSONResponse) VisitGetStatisticsCurrentVotingStreaksResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetStatisticsCurrentVotingStreaks500Response struct {
+}
+
+func (response GetStatisticsCurrentVotingStreaks500Response) VisitGetStatisticsCurrentVotingStreaksResponse(w http.ResponseWriter) error {
+	w.WriteHeader(500)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -691,6 +840,9 @@ type StrictServerInterface interface {
 
 	// (GET /dishes/{dishID})
 	GetDishesDishID(ctx context.Context, request GetDishesDishIDRequestObject) (GetDishesDishIDResponseObject, error)
+
+	// (GET /statistics/currentVotingStreaks)
+	GetStatisticsCurrentVotingStreaks(ctx context.Context, request GetStatisticsCurrentVotingStreaksRequestObject) (GetStatisticsCurrentVotingStreaksResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, args interface{}) (interface{}, error)
@@ -780,31 +932,60 @@ func (sh *strictHandler) GetDishesDishID(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// GetStatisticsCurrentVotingStreaks operation middleware
+func (sh *strictHandler) GetStatisticsCurrentVotingStreaks(w http.ResponseWriter, r *http.Request) {
+	var request GetStatisticsCurrentVotingStreaksRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStatisticsCurrentVotingStreaks(ctx, request.(GetStatisticsCurrentVotingStreaksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStatisticsCurrentVotingStreaks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStatisticsCurrentVotingStreaksResponseObject); ok {
+		if err := validResponse.VisitGetStatisticsCurrentVotingStreaksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("Unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
+	"ZKdS6N2H3YfdvwIAAP///wVoOvQTAAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
