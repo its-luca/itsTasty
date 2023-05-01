@@ -48,8 +48,9 @@ const (
 	envOIDCID                     = "OIDC_ID"
 	envOIDCRefreshIntervalMinutes = "OIDC_REFRESH_INTERVAL_MINUTES"
 
-	envVacationServerURL   = "VACATION_SERVER_URL"
-	envPublicHolidayRegion = "PUBLIC_HOLIDAY_REGION"
+	envVacationServerURL    = "VACATION_SERVER_URL"
+	envVacationServerApiKey = "VACATION_SERVER_API_KEY"
+	envPublicHolidayRegion  = "PUBLIC_HOLIDAY_REGION"
 
 	envBotAPIToken = "BOT_API_TOKEN"
 
@@ -89,8 +90,9 @@ type config struct {
 	oidcRefreshIntervall time.Duration
 
 	//Adapters Config
-	vacationServerURL   string
-	publicHolidayRegion string
+	vacationServerURL    string
+	vacationServerAPIKey string
+	publicHolidayRegion  string
 
 	//Bot Auth Config
 
@@ -212,6 +214,12 @@ func parseConfig() (*config, error) {
 		return nil, setEnvErr(envVacationServerURL)
 	} else {
 		cfg.vacationServerURL = vacationServerURL
+	}
+
+	if vacationServerAPIKey := os.Getenv(envVacationServerApiKey); vacationServerAPIKey == "" {
+		return nil, setEnvErr(envVacationServerApiKey)
+	} else {
+		cfg.vacationServerAPIKey = vacationServerAPIKey
 	}
 
 	if publicHolidayRegion := os.Getenv(envPublicHolidayRegion); publicHolidayRegion == "" {
@@ -682,7 +690,7 @@ func main() {
 	}
 
 	defaultVacationClientFactory := func() (domain.VacationDataSource, error) {
-		return vacation.NewUniversityVacationClient(cfg.vacationServerURL)
+		return vacation.NewUniversityVacationClient(cfg.vacationServerURL, cfg.vacationServerAPIKey)
 
 	}
 
