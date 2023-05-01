@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -17,9 +18,11 @@ func TestNewRatingStreak(t *testing.T) {
 		group              map[string]interface{}
 	}
 	tests := []struct {
-		name string
-		args args
-		want RatingStreak
+		name            string
+		args            args
+		want            RatingStreak
+		wantErr         bool
+		wantSpecificErr error
 	}{
 		{
 			name: "Empty Group",
@@ -48,10 +51,9 @@ func TestNewRatingStreak(t *testing.T) {
 				},
 				group: map[string]interface{}{},
 			},
-			want: RatingStreak{
-				Begin: today,
-				End:   today,
-			},
+			want:            RatingStreak{},
+			wantErr:         true,
+			wantSpecificErr: ErrNoStreak,
 		},
 		{
 			name: "3 simple, consecutive Ratings",
@@ -93,9 +95,10 @@ func TestNewRatingStreak(t *testing.T) {
 				},
 			},
 			want: RatingStreak{
-				Begin: today.PrevDay().PrevDay().PrevDay(),
+				Begin: today.PrevDay().PrevDay(),
 				End:   today,
 			},
+			wantErr: false,
 		},
 		{
 			name: "Two user group, 3 ratings, interrupted by one vacation day and one other non work day",
@@ -141,15 +144,28 @@ func TestNewRatingStreak(t *testing.T) {
 				},
 			},
 			want: RatingStreak{
-				Begin: today.PrevDay().PrevDay().PrevDay().PrevDay().PrevDay(),
+				Begin: today.PrevDay().PrevDay().PrevDay().PrevDay(),
 				End:   today,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewRatingStreak(tt.args.today, tt.args.ratings, tt.args.vacations, tt.args.isHolidayOrWeekend, tt.args.group); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewRatingStreak() = %v, want %v", got, tt.want)
+			got, err := NewRatingStreak(tt.args.today, tt.args.ratings, tt.args.vacations, tt.args.isHolidayOrWeekend, tt.args.group)
+			if err != nil {
+				if !tt.wantErr {
+					t.Errorf("unexpected error : %v", err)
+				}
+				if tt.wantSpecificErr != nil && !errors.Is(err, tt.wantSpecificErr) {
+					t.Errorf("wanted error %v got : %v", tt.wantSpecificErr, err)
+				}
+			} else {
+				if tt.wantErr {
+					t.Errorf("wanted error but got none")
+				}
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("NewRatingStreak() = %v, want %v", got, tt.want)
+				}
 			}
 		})
 	}
@@ -172,7 +188,7 @@ func TestRatingStreak_LengthInDays(t *testing.T) {
 				Begin: today,
 				End:   today,
 			},
-			want: 0,
+			want: 1,
 		},
 		{
 			name: "1 day Rating Streak",
@@ -180,7 +196,7 @@ func TestRatingStreak_LengthInDays(t *testing.T) {
 				Begin: today.PrevDay(),
 				End:   today,
 			},
-			want: 1,
+			want: 2,
 		},
 	}
 	for _, tt := range tests {
