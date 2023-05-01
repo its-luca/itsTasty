@@ -4,6 +4,23 @@ import (
 	"time"
 )
 
+type DayPrecisionTime struct {
+	time.Time
+}
+
+func NewDayPrecisionTime(t time.Time) DayPrecisionTime {
+	t = TruncateToDayPrecision(t)
+	return DayPrecisionTime{t}
+}
+
+func (d DayPrecisionTime) PrevDay() DayPrecisionTime {
+	return NewDayPrecisionTime(d.Add(-24 * (time.Hour)))
+}
+
+func (d DayPrecisionTime) NextDay() DayPrecisionTime {
+	return NewDayPrecisionTime(d.Add(24 * time.Hour))
+}
+
 // OnSameDay returns true if t1 and t2 are on the same day
 func OnSameDay(t1, t2 time.Time) bool {
 	if t1.Year() != t2.Year() {

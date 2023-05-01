@@ -40,6 +40,18 @@ type CreateOrUpdateDishResp struct {
 	DishID int64 `json:"dishID"`
 }
 
+// CurrentVotingStreakResp Response data for /statistics/longestVotingStreak
+type CurrentVotingStreakResp struct {
+	// CurrentTeamVotingStreak Length of current team voting streak in days
+	CurrentTeamVotingStreak *int `json:"currentTeamVotingStreak,omitempty"`
+
+	// CurrentUserVotingStreakLength Length of the longest, currently ongoing voting streak by an individual user
+	CurrentUserVotingStreakLength *int `json:"currentUserVotingStreakLength,omitempty"`
+
+	// UsersWithMaxStreak All users who have a currently ongoing voting streak of length currentUserVotingStreakLength
+	UsersWithMaxStreak *[]string `json:"usersWithMaxStreak,omitempty"`
+}
+
 // GetDishResp Detailed description of a dish
 type GetDishResp struct {
 	// AvgRating Average rating for this dish. Omitted if there are no votes yet

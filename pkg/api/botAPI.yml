@@ -91,10 +91,45 @@ components:
         - checkMergeCandidates
 
 
+
+    CurrentVotingStreakResp:
+      type: object
+      description: Longest currently ongoing voting streaks
+      properties:
+        currentTeamVotingStreak:
+          description: Length of current team voting streak in days
+          type: integer
+        currentUserVotingStreakLength:
+          description: Length of the longest, currently ongoing voting streak by an individual user
+          type: integer
+        usersWithMaxStreak:
+          description: All users who have a currently ongoing voting streak of length currentUserVotingStreakLength
+          type: array
+          items:
+            type: string
+            description: Email of the user
+
+
+
 security:
   - ApiKeyAuth: []
 
 paths:
+  /statistics/currentVotingStreaks:
+    get:
+      description: A voting streak is the consecutive number of days that a user has voted. Weekends and vacations do not break
+        voting streaks. This endpoint returns the current voting streak for the whole team (if there is any) as well as
+        the longest currently ongoing voting streak of a user (if there is any)
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentVotingStreakResp'
+        500:
+          description: Internal error but input was fine
+
   /dishes/{dishID}:
     get:
       description: Get details like ratings and occurrences for this dish

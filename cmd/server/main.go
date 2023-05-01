@@ -9,9 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"itsTasty/pkg/api/adapters/dishRepo"
+	"itsTasty/pkg/api/adapters/publicHoliday"
+	"itsTasty/pkg/api/adapters/vacation"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports/botAPI"
 	"itsTasty/pkg/api/ports/userAPI"
+	"itsTasty/pkg/api/statisticsService"
 	"itsTasty/pkg/oidcAuth"
 	"log"
 	"net/http"
@@ -45,6 +48,9 @@ const (
 	envOIDCID                     = "OIDC_ID"
 	envOIDCRefreshIntervalMinutes = "OIDC_REFRESH_INTERVAL_MINUTES"
 
+	envVacationServerURL   = "VACATION_SERVER_URL"
+	envPublicHolidayRegion = "PUBLIC_HOLIDAY_REGION"
+
 	envBotAPIToken = "BOT_API_TOKEN"
 
 	//envURLAfterLogin sets the default url after login if no login target is given to the authenticator
@@ -58,7 +64,7 @@ const (
 	//envVarDevCORS one URL that is allowed for CORS requests
 	envVarDevCORS = "DEV_CORS"
 
-	//envVarSessionLifetime is the maximum lifetime of the session cookie. Afterwards the user
+	//envVarSessionLifetime is the maximum lifetime of the session cookie. Afterward the user
 	//has to log in again
 	//see https://pkg.go.dev/time#ParseDuration for input format
 	envVarSessionLifetime = "SESSION_LIFETIME"
@@ -82,6 +88,10 @@ type config struct {
 	urlAfterLogout       string
 	oidcRefreshIntervall time.Duration
 
+	//Adapters Config
+	vacationServerURL   string
+	publicHolidayRegion string
+
 	//Bot Auth Config
 
 	botAPIToken string
@@ -103,13 +113,22 @@ type config struct {
 	sessionLifetime time.Duration
 }
 
+// defaultTimeSource simply wraps time.Now()
+type defaultTimeSource struct {
+}
+
+func (d defaultTimeSource) Now() time.Time {
+	return time.Now()
+}
+
 type application struct {
-	conf          *config
-	authenticator oidcAuth.Authenticator
-	session       *scs.SessionManager
-	router        chi.Router
-	dishRepo      domain.DishRepo
-	jobScheduler  *gocron.Scheduler
+	conf                *config
+	authenticator       oidcAuth.Authenticator
+	session             *scs.SessionManager
+	router              chi.Router
+	dishRepo            domain.DishRepo
+	ratingStreakService statisticsService.StreakService
+	jobScheduler        *gocron.Scheduler
 }
 
 func parseConfig() (*config, error) {
@@ -189,6 +208,18 @@ func parseConfig() (*config, error) {
 
 	}
 
+	if vacationServerURL := os.Getenv(envVacationServerURL); vacationServerURL == "" {
+		return nil, setEnvErr(envVacationServerURL)
+	} else {
+		cfg.vacationServerURL = vacationServerURL
+	}
+
+	if publicHolidayRegion := os.Getenv(envPublicHolidayRegion); publicHolidayRegion == "" {
+		return nil, setEnvErr(envPublicHolidayRegion)
+	} else {
+		cfg.publicHolidayRegion = publicHolidayRegion
+	}
+
 	if botApiToken := os.Getenv(envBotAPIToken); botApiToken == "" {
 		return nil, setEnvErr(envBotAPIToken)
 	} else {
@@ -228,8 +259,21 @@ func parseConfig() (*config, error) {
 }
 
 type dishRepoFactoryFunc func() (domain.DishRepo, error)
+type streakRepoFactoryFunc func() (domain.RatingStreakRepo, error)
+type statisticsRepoFactoryFunc func() (domain.StatisticsRepo, error)
 
-func newApplication(cfg *config, dishRepoFactory dishRepoFactoryFunc, botAPIFactory botAPI.ServiceFactory, userAPIFactory userAPI.HttpServerFactory) (*application, error) {
+type appComponentFactories struct {
+	dishRepoFactory       dishRepoFactoryFunc
+	streakRepoFactory     streakRepoFactoryFunc
+	statsRepoFactory      statisticsRepoFactoryFunc
+	holidayClientFactory  func() (domain.PublicHolidayDataSource, error)
+	vacationClientFactory func() (domain.VacationDataSource, error)
+
+	botAPIFactory  botAPI.ServiceFactory
+	userAPIFactory userAPI.HttpServerFactory
+}
+
+func newApplication(cfg *config, factories appComponentFactories) (*application, error) {
 
 	//Build Session Storage
 
@@ -347,20 +391,60 @@ func newApplication(cfg *config, dishRepoFactory dishRepoFactoryFunc, botAPIFact
 		return nil, fmt.Errorf("failed to schedule session refresh job : %v", err)
 	}
 
-	repo, err := dishRepoFactory()
+	dishesRepo, err := factories.dishRepoFactory()
 	if err != nil {
-		return nil, fmt.Errorf("failed to instantiate db backend : %v", err)
+		return nil, fmt.Errorf("failed to instantiate dish repo : %v", err)
+	}
+
+	statsRepo, err := factories.statsRepoFactory()
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate statistics repo : %v", err)
+	}
+
+	streakRepo, err := factories.streakRepoFactory()
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate streak repo : %v", err)
+	}
+
+	vacationClient, err := factories.vacationClientFactory()
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate vacation client : %v", err)
+	}
+
+	holidayClient, err := factories.holidayClientFactory()
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate holiday client : %v", err)
+	}
+
+	streakService := statisticsService.NewDefaultStreakService(
+		statsRepo,
+		streakRepo,
+		vacationClient,
+		holidayClient,
+		defaultTimeSource{},
+	)
+
+	_, err = jobScheduler.Every(time.Hour).Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if err := streakService.UpdateRatingStreaks(ctx); err != nil {
+			log.Printf("UpdateRatingStreaks failed : %v", err)
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to schedule UpdateRatingStreaks jobs : %v", err)
 	}
 
 	app := application{
-		conf:          cfg,
-		authenticator: authenticator,
-		session:       session,
-		dishRepo:      repo,
-		jobScheduler:  jobScheduler,
+		conf:                cfg,
+		authenticator:       authenticator,
+		session:             session,
+		dishRepo:            dishesRepo,
+		jobScheduler:        jobScheduler,
+		ratingStreakService: streakService,
 	}
 
-	app.router, err = app.setupRouter(botAPIFactory, userAPIFactory)
+	app.router, err = app.setupRouter(factories.botAPIFactory, factories.userAPIFactory)
 	if err != nil {
 		return nil, fmt.Errorf("app.setupRouter : %v", err)
 	}
@@ -469,7 +553,7 @@ func (app *application) setupRouter(botAPIFactory botAPI.ServiceFactory, userAPi
 		})
 	})
 
-	botAPIServer := botAPIFactory(app.dishRepo)
+	botAPIServer := botAPIFactory(app.dishRepo, app.ratingStreakService)
 	botAPIHandlers := botAPI.NewStrictHandler(botAPIServer, nil)
 	botAPI.HandlerFromMux(botAPIHandlers, botAPIRouter)
 	router.Mount("/botAPI/v1", botAPIRouter)
@@ -562,32 +646,61 @@ func main() {
 		return
 	}
 
-	defaultDishRepoFactory := func() (domain.DishRepo, error) {
-		//Connect to db
-		db, err := connectToPostgresDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect do db : %v", err)
-		}
+	//Connect to db
+	db, err := connectToPostgresDB(context.Background(), cfg.dbUser, cfg.dbPW, cfg.dbURL, cfg.dbName)
+	if err != nil {
+		log.Printf("Failed to connect do db : %v", err)
+		return
+	}
 
-		//Build dish repo
-		migrations := &migrate.FileMigrationSource{Dir: "/migrations/postgres"}
-		repo, err := dishRepo.NewPostgresRepo(db, migrations)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build mysql dish repo : %v", err)
-		}
+	//Build dish repo
+	migrations := &migrate.FileMigrationSource{Dir: "/migrations/postgres"}
+	repo, err := dishRepo.NewPostgresRepo(db, migrations)
+	if err != nil {
+		log.Printf("Failed to build dish repo : %v", err)
+		return
+	}
+
+	defaultDishRepoFactory := func() (domain.DishRepo, error) {
 		return repo, nil
 	}
 
-	defaultBotApiFactory := func(repo domain.DishRepo) *botAPI.Service {
-		return botAPI.NewService(repo)
+	defaultStatsRepoFactory := func() (domain.StatisticsRepo, error) {
+		return repo, nil
+	}
+
+	defaultStreakRepoFactory := func() (domain.RatingStreakRepo, error) {
+		return repo, nil
+	}
+
+	defaultBotApiFactory := func(repo domain.DishRepo, streakService statisticsService.StreakService) *botAPI.Service {
+		return botAPI.NewService(repo, streakService)
 	}
 
 	defaultUserApiFactory := func(repo domain.DishRepo) *userAPI.HttpServer {
 		return userAPI.NewHttpServer(repo)
 	}
 
+	defaultVacationClientFactory := func() (domain.VacationDataSource, error) {
+		return vacation.NewUniversityVacationClient(cfg.vacationServerURL)
+
+	}
+
+	defaultHolidayClientFactory := func() (domain.PublicHolidayDataSource, error) {
+		return publicHoliday.NewDefaultRegionHolidayChecker(cfg.publicHolidayRegion)
+	}
+
+	factories := appComponentFactories{
+		dishRepoFactory:       defaultDishRepoFactory,
+		streakRepoFactory:     defaultStreakRepoFactory,
+		statsRepoFactory:      defaultStatsRepoFactory,
+		holidayClientFactory:  defaultHolidayClientFactory,
+		vacationClientFactory: defaultVacationClientFactory,
+		botAPIFactory:         defaultBotApiFactory,
+		userAPIFactory:        defaultUserApiFactory,
+	}
 	log.Printf("Building application...")
-	app, err := newApplication(cfg, defaultDishRepoFactory, defaultBotApiFactory, defaultUserApiFactory)
+	app, err := newApplication(cfg, factories)
 	if err != nil {
 		log.Printf("newApplication : %v", err)
 		return

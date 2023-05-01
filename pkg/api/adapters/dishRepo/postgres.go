@@ -21,6 +21,139 @@ type PostgresRepo struct {
 	migrationSource migrate.MigrationSource
 }
 
+func (p *PostgresRepo) UpdateMostRecentRatingStreak(ctx context.Context, name string, updateFN domain.StreakUpdateFN) error {
+	return p.updateMostRecentRatingStreak(ctx, name, updateFN)
+}
+
+func (p *PostgresRepo) updateMostRecentRatingStreak(ctx context.Context, name string, updateFN domain.StreakUpdateFN) (err error) {
+
+	//setup transaction
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		err = fmt.Errorf("BeginTX : %w", err)
+		return
+	}
+	defer func() {
+		err = p.finishTransaction(err, tx)
+	}()
+
+	//fetch current value
+	dbStreak, err := getMostRecentStreak(ctx, tx, name)
+	if err != nil {
+		err = fmt.Errorf("failed to query most recent streak : %w", err)
+		return
+	}
+
+	currentDomainStreak := domain.NewRatingStreakFromDB(domain.NewDayPrecisionTime(dbStreak.StartDate),
+		domain.NewDayPrecisionTime(dbStreak.EndDate))
+
+	//execute update callback
+	var updated *domain.RatingStreak
+	updated, err = updateFN(currentDomainStreak)
+	if err != nil {
+		err = fmt.Errorf("update function failed : %w", err)
+	}
+
+	//no update requested
+	if updated == nil {
+		return
+	}
+
+	dbStreak.StartDate = updated.Begin.Time
+	dbStreak.EndDate = updated.End.Time
+
+	_, err = dbStreak.Update(ctx, tx, boil.Infer())
+	if err != nil {
+		err = fmt.Errorf("failed to update streak data : %w", err)
+		return
+	}
+
+	return
+}
+
+func (p *PostgresRepo) CreateRatingStreak(ctx context.Context, name string, data domain.RatingStreak) (int, error) {
+	dbStreak := &sqlboilerPSQL.RatingStreak{
+		Name:      name,
+		StartDate: data.Begin.Time,
+		EndDate:   data.End.Time,
+	}
+
+	if err := dbStreak.Insert(ctx, p.db, boil.Infer()); err != nil {
+		return 0, fmt.Errorf("failed to insert rating streak: %w", err)
+	}
+
+	return dbStreak.ID, nil
+}
+
+func (p *PostgresRepo) GetMostRecentStreak(ctx context.Context, name string) (domain.RatingStreak, int, error) {
+	dbStreak, err := getMostRecentStreak(ctx, p.db, name)
+	if err != nil {
+		return domain.RatingStreak{}, 0, err
+	}
+
+	domainStreak := domain.NewRatingStreakFromDB(domain.NewDayPrecisionTime(dbStreak.StartDate),
+		domain.NewDayPrecisionTime(dbStreak.EndDate))
+	return domainStreak, dbStreak.ID, nil
+}
+
+func getMostRecentStreak(ctx context.Context, exec boil.ContextExecutor, name string) (*sqlboilerPSQL.RatingStreak, error) {
+
+	dbStreak, err := sqlboilerPSQL.RatingStreaks(
+		qm.Limit(1),
+		qm.OrderBy(sqlboilerPSQL.RatingStreakColumns.EndDate+" desc"),
+		sqlboilerPSQL.RatingStreakWhere.Name.EQ(name),
+	).One(ctx, exec)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("failed to query most recent rating streak : %w", err)
+	}
+
+	return dbStreak, nil
+
+}
+
+func (p *PostgresRepo) GetAllUsers(ctx context.Context) ([]domain.User, error) {
+	dbUsers, err := sqlboilerPSQL.Users().All(ctx, p.db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users : %w", err)
+	}
+
+	domainUsers := make([]domain.User, len(dbUsers))
+	for i, v := range dbUsers {
+		domainUsers[i] = domain.User{Email: v.Email}
+	}
+	return domainUsers, nil
+}
+
+func (p *PostgresRepo) GetAllRatingsForDate(ctx context.Context, date domain.DayPrecisionTime) ([]domain.DishRating, error) {
+	startOfDay := date.Time
+	startOfNextDay := date.NextDay().Time
+	dbRatings, err := sqlboilerPSQL.DishRatings(
+		sqlboilerPSQL.DishRatingWhere.Date.GTE(startOfDay),
+		sqlboilerPSQL.DishRatingWhere.Date.LT(startOfNextDay),
+		qm.Load(sqlboilerPSQL.DishRatingRels.User),
+	).All(ctx, p.db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query ratings : %w", err)
+	}
+
+	domainRatings := make([]domain.DishRating, len(dbRatings))
+	for i, v := range dbRatings {
+		if v.R.User == nil {
+			return nil, fmt.Errorf("rating with id %v has no user", v.ID)
+		}
+		domainRating, err := domain.NewDishRatingFromDB(v.R.User.Email, v.Rating, v.Date.In(time.Local))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create domain rating from %+v : %w", v, err)
+		}
+		domainRatings[i] = domainRating
+	}
+	return domainRatings, nil
+}
+
 func (p *PostgresRepo) GetMostRecentDishForMergedDish(ctx context.Context, mergedDishID int64) (*domain.Dish, int64, error) {
 	//fetch merged dish from db
 	dbDish, err := sqlboilerPSQL.Dishes(
@@ -97,7 +230,7 @@ func (p *PostgresRepo) IsDishPartOfMergedDisByID(ctx context.Context, dishID int
 	return true, int64(*dbDish.MergedDishID.Ptr()), nil
 }
 
-func NewPostgresRepo(db *sql.DB, migrationSource migrate.MigrationSource) (domain.DishRepo, error) {
+func NewPostgresRepo(db *sql.DB, migrationSource migrate.MigrationSource) (*PostgresRepo, error) {
 	appliedMigrations, err := migrate.Exec(db, "postgres", migrationSource, migrate.Up)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply db migrations : %v", err)

@@ -10,7 +10,10 @@ import (
 )
 
 type factoryCleanupFunc func() error
-type repoFactory func() (domain.DishRepo, factoryCleanupFunc, error)
+type dishRepoFactory func() (domain.DishRepo, factoryCleanupFunc, error)
+type ratingStreakRepoFactory func() (domain.RatingStreakRepo, factoryCleanupFunc, error)
+type statisticsRepoFactory func() (repo *PostgresRepo, cleanupFunc factoryCleanupFunc, err error)
+
 type dbTestFunc func(t *testing.T, repo domain.DishRepo)
 
 // roundTimeToDBResolution is a helper that rounds down the time precision, as the database
@@ -19,13 +22,13 @@ func roundTimeToDBResolution(t time.Time) time.Time {
 	return t.Round(time.Second)
 }
 
-type commonDbTest struct {
-	Name     string
-	TestFunc dbTestFunc
-}
+func runCommonDbTests(t *testing.T, dishFactory dishRepoFactory, ratingStreakFactory ratingStreakRepoFactory,
+	statisticsFactory statisticsRepoFactory) {
 
-func runCommonDbTests(t *testing.T, factory repoFactory) {
-
+	type commonDbTest struct {
+		Name     string
+		TestFunc dbTestFunc
+	}
 	tests := []commonDbTest{
 		{
 			Name:     "GetOrCreateDish_CreateAndQuery",
@@ -73,16 +76,68 @@ func runCommonDbTests(t *testing.T, factory repoFactory) {
 		test := tests[i]
 		t.Run(test.Name, func(t *testing.T) {
 			t.Parallel()
-			repo, cleanup, err := factory()
+			repo, cleanup, err := dishFactory()
 			require.NoError(t, err)
 			defer func() {
 				if err := cleanup(); err != nil {
 					t.Fatalf("Cleanup failed : %v", err)
 				}
 			}()
+			test.TestFunc(t, repo)
+		})
+	}
+
+	type streakRepoDbTest struct {
+		Name     string
+		TestFunc func(t *testing.T, repo domain.RatingStreakRepo)
+	}
+	streakTests := []streakRepoDbTest{
+		{
+			Name:     "Create_Get_Update",
+			TestFunc: testStreak_Create_Get_Update,
+		},
+	}
+
+	for i := range streakTests {
+		test := streakTests[i]
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			repo, cleanup, err := ratingStreakFactory()
+			require.NoError(t, err)
 			defer func() {
-				err = repo.DropRepo(context.Background())
-				require.NoError(t, err)
+				if err := cleanup(); err != nil {
+					t.Fatalf("Cleanup failed : %v", err)
+				}
+			}()
+
+			test.TestFunc(t, repo)
+		})
+	}
+
+	type statisticsDbTest struct {
+		Name     string
+		TestFunc func(t *testing.T, repo *PostgresRepo)
+	}
+	statisticsTests := []statisticsDbTest{
+		{
+			Name:     "GetAllUsers",
+			TestFunc: testStatistics_GetAllUsers,
+		},
+		{
+			Name:     "GetAllRatingsForDate",
+			TestFunc: testStatistics_GetAllRatingsForDate,
+		},
+	}
+	for i := range statisticsTests {
+		test := statisticsTests[i]
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			repo, cleanup, err := statisticsFactory()
+			require.NoError(t, err)
+			defer func() {
+				if err := cleanup(); err != nil {
+					t.Fatalf("Cleanup failed : %v", err)
+				}
 			}()
 
 			test.TestFunc(t, repo)

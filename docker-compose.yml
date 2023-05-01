@@ -8,6 +8,8 @@ services:
       - OIDC_CALLBACK_URL
       - OIDC_PROVIDER_URL
       - OIDC_ID
+      - VACATION_SERVER_URL
+      - PUBLIC_HOLIDAY_REGION
       - BOT_API_TOKEN
       - DB_URL
       - DB_NAME
