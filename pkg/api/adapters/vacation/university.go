@@ -6,63 +6,74 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"itsTasty/pkg/api/domain"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 )
 
-// Status describes the state of the vacation request in the booking system
-type Status struct {
+// status describes the state of the vacation request in the booking system
+type status struct {
 	Status string
 }
 
-type PersonVacationSpan struct {
+type personVacationSpan struct {
 	Name   string
 	Start  time.Time
 	End    time.Time
-	Status Status
+	Status status
 }
 
-type GetVacationResp = map[string][]PersonVacationSpan
+type getVacationArgs struct {
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// getVacationResp maps each user to their vacation spans
+type getVacationResp map[string][]personVacationSpan
 
 var (
 	//Confirmed means that vacation was booked successfully
-	Confirmed = Status{"confirmed"}
+	confirmed = status{"confirmed"}
 	//Planned means that the person intends to take vacation but has not booked it yet
-	Planned = Status{"planned"}
+	planned = status{"planned"}
 	//Pending means that the vacation has been booked but not approved
-	Pending = Status{"pending"}
+	pending = status{"pending"}
 )
 
 type UniversityVacationClient struct {
 	url string
 }
 
-// GetVacation returns the vacations in the given timespan. Start must be at the current day or in the future
-func (u *UniversityVacationClient) GetVacation(ctx context.Context, start, end time.Time) (GetVacationResp, error) {
-	type getVacationArgs struct {
-		StartTime time.Time
-		EndTime   time.Time
+func NewUniversityVacationClient(baseURL string) (*UniversityVacationClient, error) {
+	if _, err := url.Parse(baseURL); err != nil {
+		return nil, fmt.Errorf("failed to parse baseURL : %v", err)
 	}
+	return &UniversityVacationClient{url: baseURL}, nil
+}
+
+// Vacations returns the vacations for the given da which may not be in the past
+func (u *UniversityVacationClient) Vacations(ctx context.Context, day domain.DayPrecisionTime) (domain.UsersOnVacation, error) {
 
 	args := getVacationArgs{
-		StartTime: start,
-		EndTime:   end,
+		StartTime: day.Time,
+		EndTime:   day.Time,
 	}
 
 	reqBody := &bytes.Buffer{}
 	if err := json.NewEncoder(reqBody).Encode(args); err != nil {
-		return nil, fmt.Errorf("failed to encode args to json : %w", err)
+		return domain.UsersOnVacation{}, fmt.Errorf("failed to encode args to json : %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.url, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request object : %w", err)
+		return domain.UsersOnVacation{}, fmt.Errorf("failed to create request object : %w", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed : %w", err)
+		return domain.UsersOnVacation{}, fmt.Errorf("request failed : %w", err)
 	}
 
 	rawResp, err := io.ReadAll(resp.Body)
@@ -73,13 +84,38 @@ func (u *UniversityVacationClient) GetVacation(ctx context.Context, start, end t
 		}
 	}(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response : %w", err)
+		return domain.UsersOnVacation{}, fmt.Errorf("failed to read response : %w", err)
 	}
-	vacationData := make(GetVacationResp, 0)
+	vacationData := make(getVacationResp)
 	if err := json.NewDecoder(bytes.NewReader(rawResp)).Decode(&vacationData); err != nil {
-		return nil, fmt.Errorf("failed to decode response \"%s\" : %w", rawResp, err)
+		return domain.UsersOnVacation{}, fmt.Errorf("failed to decode response \"%s\" : %w", rawResp, err)
 	}
 
-	return vacationData, nil
+	result := make(map[domain.DayPrecisionTime]map[string]interface{})
+	if len(vacationData) == 0 {
+		return domain.NewUsersOnVacation(result), nil
+	}
+
+	//convert api response to internal data structure
+	//api: users -> vacation spans
+	//internal: date -> users with vacation
+	for user, userVacations := range vacationData {
+		for _, vacation := range userVacations {
+			if vacation.Status != confirmed {
+				continue
+			}
+			current := domain.NewDayPrecisionTime(vacation.Start)
+			endDate := domain.NewDayPrecisionTime(vacation.End)
+			for !current.After(endDate.Time) {
+				if _, ok := result[current]; !ok {
+					result[current] = make(map[string]interface{})
+				}
+				result[current][user] = nil
+				current = current.NextDay()
+			}
+		}
+	}
+
+	return domain.NewUsersOnVacation(result), nil
 
 }
