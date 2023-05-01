@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path"
 	"time"
 )
 
@@ -43,14 +44,16 @@ var (
 )
 
 type UniversityVacationClient struct {
-	url string
+	baseURL *url.URL
+	apiKey  string
 }
 
-func NewUniversityVacationClient(baseURL string) (*UniversityVacationClient, error) {
-	if _, err := url.Parse(baseURL); err != nil {
+func NewUniversityVacationClient(baseURL, apiKey string) (*UniversityVacationClient, error) {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse baseURL : %v", err)
 	}
-	return &UniversityVacationClient{url: baseURL}, nil
+	return &UniversityVacationClient{baseURL: parsedURL, apiKey: apiKey}, nil
 }
 
 // Vacations returns the vacations for the given da which may not be in the past
@@ -66,10 +69,11 @@ func (u *UniversityVacationClient) Vacations(ctx context.Context, day domain.Day
 		return domain.UsersOnVacation{}, fmt.Errorf("failed to encode args to json : %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.url, reqBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path.Join(u.baseURL.Path, "getVacations"), reqBody)
 	if err != nil {
 		return domain.UsersOnVacation{}, fmt.Errorf("failed to create request object : %w", err)
 	}
+	req.Header.Set("Authorization", u.apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
