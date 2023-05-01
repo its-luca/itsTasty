@@ -69,7 +69,9 @@ func (u *UniversityVacationClient) Vacations(ctx context.Context, day domain.Day
 		return domain.UsersOnVacation{}, fmt.Errorf("failed to encode args to json : %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path.Join(u.baseURL.Path, "getVacations"), reqBody)
+	endpointURL := *u.baseURL
+	endpointURL.Path = path.Join(u.baseURL.Path, "getVacations")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpointURL.String(), reqBody)
 	if err != nil {
 		return domain.UsersOnVacation{}, fmt.Errorf("failed to create request object : %w", err)
 	}
