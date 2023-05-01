@@ -9,9 +9,12 @@ import (
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/stretchr/testify/require"
 	"itsTasty/pkg/api/adapters/dishRepo"
+	"itsTasty/pkg/api/adapters/publicHoliday"
+	"itsTasty/pkg/api/adapters/vacation"
 	"itsTasty/pkg/api/domain"
 	"itsTasty/pkg/api/ports/botAPI"
 	"itsTasty/pkg/api/ports/userAPI"
+	"itsTasty/pkg/api/statisticsService"
 	"itsTasty/pkg/testutils"
 	"net/http"
 	"net/http/cookiejar"
@@ -798,6 +801,70 @@ func TestRateMostRecentServingWorkflow(t *testing.T) {
 
 }
 
+func TestRatingStreak(t *testing.T) {
+	//Setup test env
+
+	app, ts, cleanup, _, err := setupTestEnv()
+	defer ts.Close()
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Fatalf("Failed to cleanup test env : %v", err)
+		}
+	}()
+	require.NoError(t, err)
+
+	botApiClient, err := botAPI.NewClientWithResponses(ts.URL+"/botAPI/v1/", botAPI.WithHTTPClient(ts.Client()))
+	require.NoError(t, err)
+	user1, err := newUserClient("testUser1@test.mail", ts)
+	require.NoError(t, err)
+
+	testDishes, _ := setupTestDishes(t, botApiClient, user1, app)
+
+	dish1L1 := testDishes[0]
+
+	//
+	// RUN TEST
+
+	//not votes yet -> all rating streaks should be empty
+	streaksResponse, err := botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+		context.Background(),
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, streaksResponse.StatusCode())
+	require.Nil(t, streaksResponse.JSON200.CurrentTeamVotingStreak)
+	require.Nil(t, streaksResponse.JSON200.UsersWithMaxStreak)
+	require.Nil(t, streaksResponse.JSON200.CurrentUserVotingStreakLength)
+
+	//users votes for dish
+	postDishResp, err := user1.client.PostDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		userAPI.PostDishesDishIDJSONRequestBody{
+			Rating: userAPI.RateDishReqRatingN3,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, postDishResp.StatusCode())
+
+	//as user voted, we should now have a voting streak of length 1
+	streaksResponse, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+		context.Background(),
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, streaksResponse.StatusCode())
+	require.Equal(t, 1, *streaksResponse.JSON200.CurrentTeamVotingStreak)
+	require.Equal(t, []string{user1.Email}, *streaksResponse.JSON200.UsersWithMaxStreak)
+	require.Equal(t, 1, *streaksResponse.JSON200.CurrentUserVotingStreakLength)
+
+}
+
 type testUser struct {
 	Email  string
 	client *userAPI.ClientWithResponses
@@ -974,13 +1041,25 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 
 	}
 
-	dbFactory := func() (domain.DishRepo, error) {
+	dishRepoFactory := func() (domain.DishRepo, error) {
 		return repo, nil
+	}
+	statsRepoFactory := func() (domain.StatisticsRepo, error) {
+		return repo, nil
+	}
+	streakRepoFactory := func() (domain.RatingStreakRepo, error) {
+		return repo, nil
+	}
+	holidayClientFactory := func() (domain.PublicHolidayDataSource, error) {
+		return publicHoliday.NewDefaultRegionHolidayChecker("Schleswig-Holstein")
+	}
+	vacationClientFactory := func() (source domain.VacationDataSource, err error) {
+		return vacation.NewEmptyVacationClient(), nil
 	}
 
 	mockTime = NewMockTimeSourceToday()
-	botApiFactory := func(repo domain.DishRepo) *botAPI.Service {
-		return botAPI.NewServiceCustomTime(repo, mockTime)
+	botApiFactory := func(repo domain.DishRepo, service statisticsService.StreakService) *botAPI.Service {
+		return botAPI.NewServiceCustomTime(repo, service, mockTime)
 	}
 	userApiFactory := func(repo domain.DishRepo) *userAPI.HttpServer {
 		return userAPI.NewHttpServerCustomTime(repo, mockTime)
@@ -1013,7 +1092,16 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 		sessionLifetime: 10 * time.Minute,
 	}
 
-	app, err = newApplication(&config, dbFactory, botApiFactory, userApiFactory)
+	factories := appComponentFactories{
+		dishRepoFactory:       dishRepoFactory,
+		streakRepoFactory:     streakRepoFactory,
+		statsRepoFactory:      statsRepoFactory,
+		holidayClientFactory:  holidayClientFactory,
+		vacationClientFactory: vacationClientFactory,
+		botAPIFactory:         botApiFactory,
+		userAPIFactory:        userApiFactory,
+	}
+	app, err = newApplication(&config, factories)
 	if err != nil {
 		err = fmt.Errorf("failed to istantiate app : %v", err)
 		return
