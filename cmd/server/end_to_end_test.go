@@ -804,7 +804,7 @@ func TestRateMostRecentServingWorkflow(t *testing.T) {
 func TestRatingStreak(t *testing.T) {
 	//Setup test env
 
-	app, ts, cleanup, _, err := setupTestEnv()
+	app, ts, cleanup, mockTime, err := setupTestEnv()
 	defer ts.Close()
 	defer func() {
 		if err := cleanup(); err != nil {
@@ -863,6 +863,61 @@ func TestRatingStreak(t *testing.T) {
 	require.Equal(t, []string{user1.Email}, *streaksResponse.JSON200.UsersWithMaxStreak)
 	require.Equal(t, 1, *streaksResponse.JSON200.CurrentUserVotingStreakLength)
 
+	/*calling rating streak endpoint again should not change anything.
+	This test is here, because of a bug we had. Internally, we update the rating streak
+	on each call to this getter, to make sure that the data is up-to-date. However, the update
+	failed because we tried to create a new rating equal to the current one, instead of not
+	updating, leading to a db constraint error
+	*/
+	streaksResponse, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+		context.Background(),
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, streaksResponse.StatusCode())
+	require.Equal(t, 1, *streaksResponse.JSON200.CurrentTeamVotingStreak)
+	require.Equal(t, []string{user1.Email}, *streaksResponse.JSON200.UsersWithMaxStreak)
+	require.Equal(t, 1, *streaksResponse.JSON200.CurrentUserVotingStreakLength)
+
+	//add new serving to dish and rate again
+	mockTime.CurrentTime = mockTime.CurrentTime.Add(24 * time.Hour)
+	resp, err := botApiClient.PostCreateOrUpdateDishWithResponse(
+		context.Background(),
+		botAPI.PostCreateOrUpdateDishJSONRequestBody{
+			DishName: dish1L1.name,
+			ServedAt: dish1L1.location},
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, resp.StatusCode(), http.StatusOK)
+
+	postDishResp, err = user1.client.PostDishesDishIDWithResponse(
+		context.Background(),
+		dish1L1.id,
+		userAPI.PostDishesDishIDJSONRequestBody{
+			Rating: userAPI.RateDishReqRatingN3,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, postDishResp.StatusCode())
+
+	//now we should have a rating streak of length 2
+	streaksResponse, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+		context.Background(),
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, streaksResponse.StatusCode())
+	require.Equal(t, 2, *streaksResponse.JSON200.CurrentTeamVotingStreak)
+	require.Equal(t, []string{user1.Email}, *streaksResponse.JSON200.UsersWithMaxStreak)
+	require.Equal(t, 2, *streaksResponse.JSON200.CurrentUserVotingStreakLength)
 }
 
 type testUser struct {
@@ -1041,6 +1096,8 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 
 	}
 
+	mockTime = NewMockTimeSourceToday()
+
 	dishRepoFactory := func() (domain.DishRepo, error) {
 		return repo, nil
 	}
@@ -1057,12 +1114,16 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 		return vacation.NewEmptyVacationClient(), nil
 	}
 
-	mockTime = NewMockTimeSourceToday()
 	botApiFactory := func(repo domain.DishRepo, service statisticsService.StreakService) *botAPI.Service {
 		return botAPI.NewServiceCustomTime(repo, service, mockTime)
 	}
 	userApiFactory := func(repo domain.DishRepo) *userAPI.HttpServer {
 		return userAPI.NewHttpServerCustomTime(repo, mockTime)
+	}
+
+	streakServiceFactory := func(statsRepo domain.StatisticsRepo, vacationStreakRepo domain.RatingStreakRepo, vacationClient domain.VacationDataSource, holidayClient domain.PublicHolidayDataSource) (service statisticsService.StreakService, err2 error) {
+		return statisticsService.NewDefaultStreakService(
+			statsRepo, vacationStreakRepo, vacationClient, holidayClient, mockTime), nil
 	}
 
 	repoCleanupFN := func() error {
@@ -1100,6 +1161,7 @@ func setupTestEnv() (app *application, ts *httptest.Server, cleanupFN func() err
 		vacationClientFactory: vacationClientFactory,
 		botAPIFactory:         botApiFactory,
 		userAPIFactory:        userApiFactory,
+		streakServiceFactory:  streakServiceFactory,
 	}
 	app, err = newApplication(&config, factories)
 	if err != nil {

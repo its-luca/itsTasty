@@ -276,6 +276,8 @@ type appComponentFactories struct {
 	statsRepoFactory      statisticsRepoFactoryFunc
 	holidayClientFactory  func() (domain.PublicHolidayDataSource, error)
 	vacationClientFactory func() (domain.VacationDataSource, error)
+	streakServiceFactory  func(statsRepo domain.StatisticsRepo, vacationStreakRepo domain.RatingStreakRepo,
+		vacationClient domain.VacationDataSource, holidayClient domain.PublicHolidayDataSource) (service statisticsService.StreakService, err2 error)
 
 	botAPIFactory  botAPI.ServiceFactory
 	userAPIFactory userAPI.HttpServerFactory
@@ -424,13 +426,11 @@ func newApplication(cfg *config, factories appComponentFactories) (*application,
 		return nil, fmt.Errorf("failed to instantiate holiday client : %v", err)
 	}
 
-	streakService := statisticsService.NewDefaultStreakService(
-		statsRepo,
-		streakRepo,
-		vacationClient,
-		holidayClient,
-		defaultTimeSource{},
-	)
+	streakService, err := factories.streakServiceFactory(statsRepo, streakRepo, vacationClient, holidayClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate streak service : %v", err)
+
+	}
 
 	_, err = jobScheduler.Every(time.Hour).Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -697,6 +697,16 @@ func main() {
 	defaultHolidayClientFactory := func() (domain.PublicHolidayDataSource, error) {
 		return publicHoliday.NewDefaultRegionHolidayChecker(cfg.publicHolidayRegion)
 	}
+	defaultStreakServiceFactory := func(statsRepo domain.StatisticsRepo, vacationStreakRepo domain.RatingStreakRepo,
+		vacationClient domain.VacationDataSource, holidayClient domain.PublicHolidayDataSource) (service statisticsService.StreakService, err2 error) {
+		return statisticsService.NewDefaultStreakService(
+			statsRepo,
+			vacationStreakRepo,
+			vacationClient,
+			holidayClient,
+			defaultTimeSource{},
+		), nil
+	}
 
 	factories := appComponentFactories{
 		dishRepoFactory:       defaultDishRepoFactory,
@@ -706,6 +716,7 @@ func main() {
 		vacationClientFactory: defaultVacationClientFactory,
 		botAPIFactory:         defaultBotApiFactory,
 		userAPIFactory:        defaultUserApiFactory,
+		streakServiceFactory:  defaultStreakServiceFactory,
 	}
 	log.Printf("Building application...")
 	app, err := newApplication(cfg, factories)

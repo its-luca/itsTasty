@@ -129,14 +129,18 @@ func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
 			return fmt.Errorf("failed to determine streak for user %v : %v", user, err)
 		}
 
-		//check if today's streak extends previous streak
-		cannotExtendPrevStreak := false
+		createNewStreak := false
 		err = d.vacationStreakRepo.UpdateMostRecentRatingStreak(ctx, user.Email, func(current domain.RatingStreak) (*domain.RatingStreak, error) {
+
+			//if newStreak is equal to current streak do nothing
+			if current.Begin.Equal(newStreak.Begin.Time) && current.End.Equal(current.End.Time) {
+				return nil, nil
+			}
 
 			//cannot extend prev streak due to gap (assumption, this routine is called daily)
 			yesterday := domain.NewDayPrecisionTime(d.timeSource.Now()).PrevDay()
 			if !current.End.Equal(yesterday.Time) {
-				cannotExtendPrevStreak = true
+				createNewStreak = true
 				return nil, nil
 			}
 
@@ -151,13 +155,13 @@ func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
 		})
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
-				cannotExtendPrevStreak = true
+				createNewStreak = true
 			} else {
 				return fmt.Errorf("failed to update rating streak for user %v : %w", user, err)
 			}
 		}
 
-		if cannotExtendPrevStreak {
+		if createNewStreak {
 			if _, err := d.vacationStreakRepo.CreateRatingStreak(ctx, user.Email, newStreak); err != nil {
 				return fmt.Errorf("failed to create new streak for user %v : %w", user, err)
 			}
@@ -181,13 +185,17 @@ func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
 		return fmt.Errorf("failed to calculate \"all users\" streak : %v", err)
 	}
 
-	//check if today's streak extends previous streak
-	cannotExtendPrevStreak := false
+	createNewStreak := false
 	err = d.vacationStreakRepo.UpdateMostRecentRatingStreak(ctx, AllUsersStreakName, func(current domain.RatingStreak) (*domain.RatingStreak, error) {
+
+		//if newStreak is equal to current streak do nothing
+		if current.Begin.Equal(newStreak.Begin.Time) && current.End.Equal(current.End.Time) {
+			return nil, nil
+		}
 
 		//cannot extend prev streak due to gap (assumption, this routine is called daily)
 		if !current.End.Equal(domain.NewDayPrecisionTime(d.timeSource.Now()).PrevDay().Time) {
-			cannotExtendPrevStreak = true
+			createNewStreak = true
 			return nil, nil
 		}
 
@@ -202,13 +210,13 @@ func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
 	})
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			cannotExtendPrevStreak = true
+			createNewStreak = true
 		} else {
 			return fmt.Errorf("failed to update rating streak for all users group : %w", err)
 		}
 	}
 
-	if cannotExtendPrevStreak {
+	if createNewStreak {
 		if _, err := d.vacationStreakRepo.CreateRatingStreak(ctx, AllUsersStreakName, newStreak); err != nil {
 			return fmt.Errorf("failed to create new streak for all users group : %w", err)
 		}
