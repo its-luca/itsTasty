@@ -40,7 +40,7 @@ type CreateOrUpdateDishResp struct {
 	DishID int64 `json:"dishID"`
 }
 
-// CurrentVotingStreakResp Response data for /statistics/longestVotingStreak
+// CurrentVotingStreakResp Longest currently ongoing voting streaks
 type CurrentVotingStreakResp struct {
 	// CurrentTeamVotingStreak Length of current team voting streak in days
 	CurrentTeamVotingStreak *int `json:"currentTeamVotingStreak,omitempty"`
