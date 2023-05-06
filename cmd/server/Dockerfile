@@ -12,7 +12,7 @@ WORKDIR /host-files
 COPY /go.mod .
 COPY /go.sum .
 RUN go get ./...
-RUN go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@master
+RUN go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@latest
 
 # copy rest of repo for build
 COPY / .
