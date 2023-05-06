@@ -41,21 +41,27 @@ func NewDefaultStreakService(statsRepo domain.StatisticsRepo, vacationStreakRepo
 	}
 }
 
+type vacationStreakData struct {
+	users              []domain.User
+	ratingsToday       []domain.DishRating
+	usersOnVacation    domain.UsersOnVacation
+	isHolidayOrWeekend bool
+}
+
 // fetchData is a helper functions querying the data required in UpdateRatingStreaks.
 // The slices/maps users, ratingsToday and usersOnVacation may be empty
-func (d *DefaultStreakService) fetchData(ctx context.Context) (users []domain.User, ratingsToday []domain.DishRating,
-	usersOnVacation domain.UsersOnVacation, isHolidayOrWeekend bool, err error) {
+func (d *DefaultStreakService) fetchData(ctx context.Context) (vacationStreakData, error) {
 	poolCtx, poolCancel := context.WithCancel(ctx)
 	defer poolCancel()
 
+	result := vacationStreakData{}
 	reqPool := pool.New().WithContext(poolCtx).WithCancelOnError()
-
 	reqPool.Go(func(ctx context.Context) error {
 		var err error
-		users, err = d.statsRepo.GetAllUsers(ctx)
+		result.users, err = d.statsRepo.GetAllUsers(ctx)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
-				users = make([]domain.User, 0)
+				result.users = make([]domain.User, 0)
 			} else {
 				return fmt.Errorf("failed to fetch users : %w", err)
 			}
@@ -65,10 +71,10 @@ func (d *DefaultStreakService) fetchData(ctx context.Context) (users []domain.Us
 
 	reqPool.Go(func(ctx context.Context) error {
 		var err error
-		ratingsToday, err = d.statsRepo.GetAllRatingsForDate(ctx, domain.NewDayPrecisionTime(d.timeSource.Now()))
+		result.ratingsToday, err = d.statsRepo.GetAllRatingsForDate(ctx, domain.NewDayPrecisionTime(d.timeSource.Now()))
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
-				ratingsToday = make([]domain.DishRating, 0)
+				result.ratingsToday = make([]domain.DishRating, 0)
 			} else {
 				return fmt.Errorf("failed to fetch today's ratings : %w", err)
 			}
@@ -78,7 +84,7 @@ func (d *DefaultStreakService) fetchData(ctx context.Context) (users []domain.Us
 
 	reqPool.Go(func(ctx context.Context) error {
 		var err error
-		usersOnVacation, err = d.vacationClient.Vacations(ctx, domain.NewDayPrecisionTime(d.timeSource.Now()))
+		result.usersOnVacation, err = d.vacationClient.Vacations(ctx, domain.NewDayPrecisionTime(d.timeSource.Now()))
 		if err != nil {
 			return fmt.Errorf("failed to get today's vacations : %w", err)
 		}
@@ -93,100 +99,36 @@ func (d *DefaultStreakService) fetchData(ctx context.Context) (users []domain.Us
 		if err != nil {
 			return fmt.Errorf("failed to check if %v is public holiday :%w", date, err)
 		}
-		isHolidayOrWeekend = isHoliday || (date.Weekday() == time.Saturday && date.Weekday() == time.Sunday)
+		result.isHolidayOrWeekend = isHoliday || (date.Weekday() == time.Saturday && date.Weekday() == time.Sunday)
 
 		return nil
 	})
 
 	poolErr := reqPool.Wait()
 	if poolErr != nil {
-		err = fmt.Errorf("request in pool failed : %w", poolErr)
+		return vacationStreakData{}, fmt.Errorf("request in pool failed : %w", poolErr)
 	}
 
-	return
+	return result, nil
 }
 
-// UpdateRatingStreaks updates the rating streaks for all users currently in the system as well as for the special
-// AllUsersStreakName streak. This function must be called daily to function properly. Otherwise, we would have to store
-// vacation data of users which is a privacy concern
-func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
+func (d *DefaultStreakService) updateRatingStreak(ctx context.Context, streakData vacationStreakData, streakName string, streakUserGroup map[string]interface{}) error {
 
-	//fetch data
-	users, ratingsToday, usersOnVacation, isHolidayOrWeekend, err := d.fetchData(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to fetch data :%w", err)
-	}
-	isHolidayOrWeekendMap := map[domain.DayPrecisionTime]bool{domain.NewDayPrecisionTime(d.timeSource.Now()): isHolidayOrWeekend}
-
-	//update streaks for each user
-	for _, user := range users {
-		newStreak, err := domain.NewRatingStreak(domain.NewDayPrecisionTime(d.timeSource.Now()), ratingsToday, usersOnVacation,
-			isHolidayOrWeekendMap, map[string]interface{}{user.Email: nil})
-		if err != nil {
-			if errors.Is(err, domain.ErrNoStreak) {
-				continue
-			}
-			return fmt.Errorf("failed to determine streak for user %v : %v", user, err)
-		}
-
-		createNewStreak := false
-		err = d.vacationStreakRepo.UpdateMostRecentRatingStreak(ctx, user.Email, func(current domain.RatingStreak) (*domain.RatingStreak, error) {
-
-			//if newStreak is equal to current streak do nothing
-			if current.Begin.Equal(newStreak.Begin.Time) && current.End.Equal(current.End.Time) {
-				return nil, nil
-			}
-
-			//cannot extend prev streak due to gap (assumption, this routine is called daily)
-			yesterday := domain.NewDayPrecisionTime(d.timeSource.Now()).PrevDay()
-			if !current.End.Equal(yesterday.Time) {
-				createNewStreak = true
-				return nil, nil
-			}
-
-			//have prev streak, that extends to the preceding day -> check if it extends to today
-
-			if current.End.Equal(newStreak.Begin.PrevDay().Time) {
-				current.End = newStreak.End
-			}
-
-			return &current, nil
-
-		})
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				createNewStreak = true
-			} else {
-				return fmt.Errorf("failed to update rating streak for user %v : %w", user, err)
-			}
-		}
-
-		if createNewStreak {
-			if _, err := d.vacationStreakRepo.CreateRatingStreak(ctx, user.Email, newStreak); err != nil {
-				return fmt.Errorf("failed to create new streak for user %v : %w", user, err)
-			}
-		}
-
-	}
-
-	//update special "all users" rating streak
-	//TODO: try to unify code with the update code for individual users
-	allUsersMap := map[string]interface{}{}
-	for _, v := range users {
-		allUsersMap[v.Email] = nil
-	}
-
-	newStreak, err := domain.NewRatingStreak(domain.NewDayPrecisionTime(d.timeSource.Now()), ratingsToday, usersOnVacation,
-		isHolidayOrWeekendMap, allUsersMap)
+	isHolidayOrWeekendMap := map[domain.DayPrecisionTime]bool{domain.NewDayPrecisionTime(d.timeSource.Now()): streakData.isHolidayOrWeekend}
+	newStreak, err := domain.NewRatingStreak(
+		domain.NewDayPrecisionTime(d.timeSource.Now()),
+		streakData.ratingsToday,
+		streakData.usersOnVacation,
+		isHolidayOrWeekendMap, streakUserGroup)
 	if err != nil {
 		if errors.Is(err, domain.ErrNoStreak) {
 			return nil
 		}
-		return fmt.Errorf("failed to calculate \"all users\" streak : %v", err)
+		return fmt.Errorf("failed to calculate streak for \"%s\": %v", streakName, err)
 	}
 
 	createNewStreak := false
-	err = d.vacationStreakRepo.UpdateMostRecentRatingStreak(ctx, AllUsersStreakName, func(current domain.RatingStreak) (*domain.RatingStreak, error) {
+	err = d.vacationStreakRepo.UpdateMostRecentRatingStreak(ctx, streakName, func(current domain.RatingStreak) (*domain.RatingStreak, error) {
 
 		//if newStreak is equal to current streak do nothing
 		if current.Begin.Equal(newStreak.Begin.Time) && current.End.Equal(current.End.Time) {
@@ -212,14 +154,46 @@ func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
 		if errors.Is(err, domain.ErrNotFound) {
 			createNewStreak = true
 		} else {
-			return fmt.Errorf("failed to update rating streak for all users group : %w", err)
+			return fmt.Errorf("failed to update rating streak for \"%v\" : %w", streakName, err)
 		}
 	}
 
 	if createNewStreak {
-		if _, err := d.vacationStreakRepo.CreateRatingStreak(ctx, AllUsersStreakName, newStreak); err != nil {
-			return fmt.Errorf("failed to create new streak for all users group : %w", err)
+		if _, err := d.vacationStreakRepo.CreateRatingStreak(ctx, streakName, newStreak); err != nil {
+			return fmt.Errorf("failed to create new streak for \"%v\" : %w", streakName, err)
 		}
+	}
+
+	return nil
+}
+
+// UpdateRatingStreaks updates the rating streaks for all users currently in the system as well as for the special
+// AllUsersStreakName streak. This function must be called daily to function properly. Otherwise, we would have to store
+// vacation data of users which is a privacy concern
+func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
+
+	//fetch data
+	streakData, err := d.fetchData(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch data :%w", err)
+	}
+
+	//update streaks for each user
+	for _, user := range streakData.users {
+		if err := d.updateRatingStreak(ctx, streakData, user.Email, map[string]interface{}{user.Email: nil}); err != nil {
+			return err
+		}
+	}
+
+	//update special "all users" rating streak
+	//TODO: try to unify code with the update code for individual users
+	allUsersMap := map[string]interface{}{}
+	for _, v := range streakData.users {
+		allUsersMap[v.Email] = nil
+	}
+
+	if err := d.updateRatingStreak(ctx, streakData, AllUsersStreakName, allUsersMap); err != nil {
+		return err
 	}
 
 	return nil
