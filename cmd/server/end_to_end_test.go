@@ -826,7 +826,7 @@ func TestRatingStreak(t *testing.T) {
 	// RUN TEST
 
 	//not votes yet -> all rating streaks should be empty
-	streaksResponse, err := botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+	currentStreaksResp, err := botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
 		context.Background(),
 		func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
@@ -834,12 +834,25 @@ func TestRatingStreak(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, streaksResponse.StatusCode())
-	require.Nil(t, streaksResponse.JSON200.CurrentTeamVotingStreak)
-	require.Nil(t, streaksResponse.JSON200.UsersWithMaxStreak)
-	require.Nil(t, streaksResponse.JSON200.CurrentUserVotingStreakLength)
+	require.Equal(t, http.StatusOK, currentStreaksResp.StatusCode())
+	require.Nil(t, currentStreaksResp.JSON200.CurrentTeamVotingStreak)
+	require.Nil(t, currentStreaksResp.JSON200.UsersWithMaxStreak)
+	require.Nil(t, currentStreaksResp.JSON200.CurrentUserVotingStreakLength)
 
-	//users votes for dish
+	longestStreaksResp, err := botApiClient.GetStatisticsLongestVotingStreaksWithResponse(
+		context.Background(),
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, longestStreaksResp.StatusCode())
+	require.Nil(t, longestStreaksResp.JSON200.LongestTeamVotingStreak)
+	require.Nil(t, longestStreaksResp.JSON200.LongestUserVotingStreakLength)
+	require.Nil(t, longestStreaksResp.JSON200.UsersWithMaxStreak)
+
+	//user votes for dish
 	postDishResp, err := user1.client.PostDishesDishIDWithResponse(
 		context.Background(),
 		dish1L1.id,
@@ -850,7 +863,7 @@ func TestRatingStreak(t *testing.T) {
 	require.Equal(t, http.StatusOK, postDishResp.StatusCode())
 
 	//as user voted, we should now have a voting streak of length 1
-	streaksResponse, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+	currentStreaksResp, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
 		context.Background(),
 		func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
@@ -858,10 +871,10 @@ func TestRatingStreak(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, streaksResponse.StatusCode())
-	require.Equal(t, 1, *streaksResponse.JSON200.CurrentTeamVotingStreak)
-	require.Equal(t, []string{user1.Email}, *streaksResponse.JSON200.UsersWithMaxStreak)
-	require.Equal(t, 1, *streaksResponse.JSON200.CurrentUserVotingStreakLength)
+	require.Equal(t, http.StatusOK, currentStreaksResp.StatusCode())
+	require.Equal(t, 1, *currentStreaksResp.JSON200.CurrentTeamVotingStreak)
+	require.Equal(t, []string{user1.Email}, *currentStreaksResp.JSON200.UsersWithMaxStreak)
+	require.Equal(t, 1, *currentStreaksResp.JSON200.CurrentUserVotingStreakLength)
 
 	/*calling rating streak endpoint again should not change anything.
 	This test is here, because of a bug we had. Internally, we update the rating streak
@@ -869,7 +882,7 @@ func TestRatingStreak(t *testing.T) {
 	failed because we tried to create a new rating equal to the current one, instead of not
 	updating, leading to a db constraint error
 	*/
-	streaksResponse, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+	currentStreaksResp, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
 		context.Background(),
 		func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
@@ -877,10 +890,10 @@ func TestRatingStreak(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, streaksResponse.StatusCode())
-	require.Equal(t, 1, *streaksResponse.JSON200.CurrentTeamVotingStreak)
-	require.Equal(t, []string{user1.Email}, *streaksResponse.JSON200.UsersWithMaxStreak)
-	require.Equal(t, 1, *streaksResponse.JSON200.CurrentUserVotingStreakLength)
+	require.Equal(t, http.StatusOK, currentStreaksResp.StatusCode())
+	require.Equal(t, 1, *currentStreaksResp.JSON200.CurrentTeamVotingStreak)
+	require.Equal(t, []string{user1.Email}, *currentStreaksResp.JSON200.UsersWithMaxStreak)
+	require.Equal(t, 1, *currentStreaksResp.JSON200.CurrentUserVotingStreakLength)
 
 	//add new serving to dish and rate again
 	mockTime.CurrentTime = mockTime.CurrentTime.Add(24 * time.Hour)
@@ -906,7 +919,7 @@ func TestRatingStreak(t *testing.T) {
 	require.Equal(t, http.StatusOK, postDishResp.StatusCode())
 
 	//now we should have a rating streak of length 2
-	streaksResponse, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+	currentStreaksResp, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
 		context.Background(),
 		func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
@@ -914,10 +927,41 @@ func TestRatingStreak(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, streaksResponse.StatusCode())
-	require.Equal(t, 2, *streaksResponse.JSON200.CurrentTeamVotingStreak)
-	require.Equal(t, []string{user1.Email}, *streaksResponse.JSON200.UsersWithMaxStreak)
-	require.Equal(t, 2, *streaksResponse.JSON200.CurrentUserVotingStreakLength)
+	require.Equal(t, http.StatusOK, currentStreaksResp.StatusCode())
+	require.Equal(t, 2, *currentStreaksResp.JSON200.CurrentTeamVotingStreak)
+	require.Equal(t, []string{user1.Email}, *currentStreaksResp.JSON200.UsersWithMaxStreak)
+	require.Equal(t, 2, *currentStreaksResp.JSON200.CurrentUserVotingStreakLength)
+
+	//advancing time by 24 hours. This should break the current rating streak but keep the longest rating streak
+
+	//check that current streak is broken
+	mockTime.CurrentTime = mockTime.CurrentTime.Add(24 * time.Hour)
+	currentStreaksResp, err = botApiClient.GetStatisticsCurrentVotingStreaksWithResponse(
+		context.Background(),
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, currentStreaksResp.StatusCode())
+	require.Nil(t, currentStreaksResp.JSON200.CurrentTeamVotingStreak)
+	require.Nil(t, currentStreaksResp.JSON200.UsersWithMaxStreak)
+	require.Nil(t, currentStreaksResp.JSON200.CurrentUserVotingStreakLength)
+
+	//check that longest streak is unaffected
+	longestStreaksResp, err = botApiClient.GetStatisticsLongestVotingStreaksWithResponse(
+		context.Background(),
+		func(ctx context.Context, req *http.Request) error {
+			req.Header.Set("X-API-KEY", app.conf.botAPIToken)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, longestStreaksResp.StatusCode())
+	require.Equal(t, 2, *longestStreaksResp.JSON200.LongestTeamVotingStreak)
+	require.Equal(t, []string{user1.Email}, *longestStreaksResp.JSON200.UsersWithMaxStreak)
+	require.Equal(t, 2, *longestStreaksResp.JSON200.LongestUserVotingStreakLength)
 }
 
 type testUser struct {

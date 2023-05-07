@@ -56,6 +56,47 @@ func NewServiceCustomTime(repo domain.DishRepo, streakService statisticsService.
 	}
 }
 
+func (s *Service) GetStatisticsLongestVotingStreaks(ctx context.Context, request GetStatisticsLongestVotingStreaksRequestObject) (GetStatisticsLongestVotingStreaksResponseObject, error) {
+	//try to update rating streaks before processing response. Skip this step if it takes to long
+	//(vacation backend queried by statistics service is known to be unreliable)
+	updateCtx, updateCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer updateCancel()
+	if err := s.streakService.UpdateRatingStreaks(updateCtx); err != nil {
+		log.Printf("Failed to update rating streaks : %v", err)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			return GetStatisticsLongestVotingStreaks500Response{}, nil
+		}
+	}
+
+	userStreaks, allUsersGroupStreak, err := s.streakService.GetLongestStreaks(ctx)
+	if err != nil {
+		log.Printf("failed to get longest streaks : %v", err)
+		return GetStatisticsLongestVotingStreaks500Response{}, nil
+	}
+
+	response := GetStatisticsLongestVotingStreaks200JSONResponse{
+		LongestTeamVotingStreak:       nil,
+		LongestUserVotingStreakLength: nil,
+		UsersWithMaxStreak:            nil,
+	}
+	if allUsersGroupStreak != nil {
+		l := allUsersGroupStreak.LengthInDays()
+		response.LongestTeamVotingStreak = &l
+	}
+	if len(userStreaks) > 0 {
+		l := userStreaks[0].Streak.LengthInDays()
+		response.LongestUserVotingStreakLength = &l
+		usersWithMaxStreak := make([]string, len(userStreaks))
+		for i, v := range userStreaks {
+			usersWithMaxStreak[i] = v.User.Email
+		}
+		response.UsersWithMaxStreak = &usersWithMaxStreak
+	}
+
+	return response, nil
+
+}
+
 func (s *Service) GetStatisticsCurrentVotingStreaks(ctx context.Context, request GetStatisticsCurrentVotingStreaksRequestObject) (GetStatisticsCurrentVotingStreaksResponseObject, error) {
 
 	//try to update rating streaks before processing response. Skip this step if it takes to long
@@ -72,10 +113,10 @@ func (s *Service) GetStatisticsCurrentVotingStreaks(ctx context.Context, request
 	//fetch response data
 	fetchPool := pool.New().WithContext(ctx).WithCancelOnError()
 
-	usersWithLongestStreak := make([]string, 0)
+	usersWithLongestOngoingStreak := make([]string, 0)
 	var longestUserStreak *int
 	fetchPool.Go(func(ctx context.Context) error {
-		usersWithStreak, err := s.streakService.GetMostRecentUserStreaks(ctx)
+		usersWithStreak, err := s.streakService.GetMostRecentUserStreaks(ctx, true)
 		if err != nil {
 			return fmt.Errorf("failed to fetch user streaks : %v", err)
 		}
@@ -83,17 +124,16 @@ func (s *Service) GetStatisticsCurrentVotingStreaks(ctx context.Context, request
 			return nil
 		}
 
-		//determine user(s) with longest streak and store in response format
-		usersWithLongestStreak = []string{usersWithStreak[0].User.Email}
-		tmp := usersWithStreak[0].MostRecentStreak.LengthInDays()
+		usersWithLongestOngoingStreak = []string{usersWithStreak[0].User.Email}
+		tmp := usersWithStreak[0].Streak.LengthInDays()
 		longestUserStreak = &tmp
 		for _, v := range usersWithStreak[1:] {
-			if v.MostRecentStreak.LengthInDays() == *longestUserStreak {
-				usersWithLongestStreak = append(usersWithLongestStreak, v.User.Email)
-			} else if v.MostRecentStreak.LengthInDays() > *longestUserStreak {
-				tmp = v.MostRecentStreak.LengthInDays()
+			if v.Streak.LengthInDays() == *longestUserStreak {
+				usersWithLongestOngoingStreak = append(usersWithLongestOngoingStreak, v.User.Email)
+			} else if v.Streak.LengthInDays() > *longestUserStreak {
+				tmp = v.Streak.LengthInDays()
 				longestUserStreak = &tmp
-				usersWithLongestStreak = []string{v.User.Email}
+				usersWithLongestOngoingStreak = []string{v.User.Email}
 			}
 
 		}
@@ -102,7 +142,7 @@ func (s *Service) GetStatisticsCurrentVotingStreaks(ctx context.Context, request
 
 	var allUsersStreakLength *int
 	fetchPool.Go(func(ctx context.Context) error {
-		teamStreak, err := s.streakService.GetMostRecentAllUsersGroupStreak(ctx)
+		teamStreak, err := s.streakService.GetMostRecentAllUsersGroupStreak(ctx, true)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				return nil
@@ -126,10 +166,10 @@ func (s *Service) GetStatisticsCurrentVotingStreaks(ctx context.Context, request
 		CurrentTeamVotingStreak:       allUsersStreakLength,
 		CurrentUserVotingStreakLength: longestUserStreak,
 		UsersWithMaxStreak: func() *[]string {
-			if len(usersWithLongestStreak) == 0 {
+			if len(usersWithLongestOngoingStreak) == 0 {
 				return nil
 			} else {
-				return &usersWithLongestStreak
+				return &usersWithLongestOngoingStreak
 			}
 		}(),
 	}

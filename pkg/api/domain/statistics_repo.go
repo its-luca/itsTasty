@@ -26,6 +26,12 @@ type RatingStreakRepo interface {
 	//GetMostRecentStreak returns the most recent streak entry for the given user/user group name.
 	//Marker errors ErrNotFound
 	GetMostRecentStreak(ctx context.Context, name string) (RatingStreak, int, error)
+	//GetLongestStreak returns the longest streak for the given user/user group name.
+	//Marker errors ErrNotFound
+	GetLongestStreak(ctx context.Context, name string) (RatingStreak, int, error)
+	//GetLongestIndividualStreak returns the longest streak only considering single users
+	//Marker errors ErrNotFound
+	GetLongestIndividualStreak(ctx context.Context) ([]string, RatingStreak, error)
 }
 
 type StatisticsRepo interface {

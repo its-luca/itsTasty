@@ -36,6 +36,12 @@ type mockRatingStreakRepo struct {
 	streaks map[string][]domain.RatingStreak
 }
 
+func (m mockRatingStreakRepo) GetLongestIndividualStreak(ctx context.Context) ([]string, domain.RatingStreak, error) {
+	panic("implemente me")
+}
+func (m mockRatingStreakRepo) GetLongestStreak(ctx context.Context, name string) (domain.RatingStreak, int, error) {
+	panic("implement me")
+}
 func (m mockRatingStreakRepo) UpdateMostRecentRatingStreak(ctx context.Context, name string, updateFN domain.StreakUpdateFN) error {
 	current, _, err := m.GetMostRecentStreak(ctx, name)
 	if err != nil {
@@ -130,11 +136,11 @@ func TestDefaultStreakService_GetMostRecentUserStreaks_NoUsers(t *testing.T) {
 	err = service.UpdateRatingStreaks(ctx)
 	require.NoError(t, err)
 
-	gotUserStreaks, err := service.GetMostRecentUserStreaks(ctx)
+	gotUserStreaks, err := service.GetMostRecentUserStreaks(ctx, true)
 	require.NoError(t, err)
 	require.Empty(t, gotUserStreaks)
 
-	_, err = service.GetMostRecentAllUsersGroupStreak(ctx)
+	_, err = service.GetMostRecentAllUsersGroupStreak(ctx, true)
 	require.ErrorIs(t, err, domain.ErrNotFound)
 }
 
@@ -177,11 +183,11 @@ func TestDefaultStreakService_GetMostRecentUserStreaks_NoPrevStreak(t *testing.T
 	err = service.UpdateRatingStreaks(ctx)
 	require.NoError(t, err)
 
-	gotUserStreaks, err := service.GetMostRecentUserStreaks(ctx)
+	gotUserStreaks, err := service.GetMostRecentUserStreaks(ctx, true)
 	wantUserStreaks := []UserWithStreak{
 		{
 			User: user1,
-			MostRecentStreak: domain.RatingStreak{
+			Streak: domain.RatingStreak{
 				Begin: day1,
 				End:   day1,
 			},
@@ -190,7 +196,7 @@ func TestDefaultStreakService_GetMostRecentUserStreaks_NoPrevStreak(t *testing.T
 	require.NoError(t, err)
 	require.ElementsMatch(t, wantUserStreaks, gotUserStreaks)
 
-	allUsersStreak, err := service.GetMostRecentAllUsersGroupStreak(ctx)
+	allUsersStreak, err := service.GetMostRecentAllUsersGroupStreak(ctx, true)
 	wantAllUsersStreak := domain.RatingStreak{
 		Begin: day1,
 		End:   day1,
@@ -252,11 +258,11 @@ func TestDefaultStreakService_GetMostRecentUserStreaks_PrevStreak_Can_Extend(t *
 	err = service.UpdateRatingStreaks(ctx)
 	require.NoError(t, err)
 
-	gotUserStreaks, err := service.GetMostRecentUserStreaks(ctx)
+	gotUserStreaks, err := service.GetMostRecentUserStreaks(ctx, true)
 	wantUserStreaks := []UserWithStreak{
 		{
 			User: user1,
-			MostRecentStreak: domain.RatingStreak{
+			Streak: domain.RatingStreak{
 				Begin: yesterday,
 				End:   today,
 			},
@@ -265,7 +271,7 @@ func TestDefaultStreakService_GetMostRecentUserStreaks_PrevStreak_Can_Extend(t *
 	require.NoError(t, err)
 	require.ElementsMatch(t, wantUserStreaks, gotUserStreaks)
 
-	allUsersStreak, err := service.GetMostRecentAllUsersGroupStreak(ctx)
+	allUsersStreak, err := service.GetMostRecentAllUsersGroupStreak(ctx, true)
 	wantAllUsersStreak := domain.RatingStreak{
 		Begin: yesterday,
 		End:   today,
@@ -328,11 +334,11 @@ func TestDefaultStreakService_GetMostRecentUserStreaks_PrevStreak_Cannot_Extend(
 	err = service.UpdateRatingStreaks(ctx)
 	require.NoError(t, err)
 
-	gotUserStreaks, err := service.GetMostRecentUserStreaks(ctx)
+	gotUserStreaks, err := service.GetMostRecentUserStreaks(ctx, true)
 	wantUserStreaks := []UserWithStreak{
 		{
 			User: user1,
-			MostRecentStreak: domain.RatingStreak{
+			Streak: domain.RatingStreak{
 				Begin: today,
 				End:   today,
 			},
@@ -341,11 +347,30 @@ func TestDefaultStreakService_GetMostRecentUserStreaks_PrevStreak_Cannot_Extend(
 	require.NoError(t, err)
 	require.ElementsMatch(t, wantUserStreaks, gotUserStreaks)
 
-	allUsersStreak, err := service.GetMostRecentAllUsersGroupStreak(ctx)
+	allUsersStreak, err := service.GetMostRecentAllUsersGroupStreak(ctx, true)
 	wantAllUsersStreak := domain.RatingStreak{
 		Begin: today,
 		End:   today,
 	}
+	require.NoError(t, err)
+	require.Equal(t, wantAllUsersStreak, *allUsersStreak)
+
+	//advance time by one day -> check that onlyOngoing=true returns no more streaks while onlyOngoing=false returns
+	//the same result
+
+	timeSource.AdvanceBy(24 * time.Hour)
+	gotUserStreaks, err = service.GetMostRecentUserStreaks(ctx, true)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []UserWithStreak{}, gotUserStreaks)
+
+	allUsersStreak, err = service.GetMostRecentAllUsersGroupStreak(ctx, true)
+	require.ErrorIs(t, err, domain.ErrNotFound)
+
+	gotUserStreaks, err = service.GetMostRecentUserStreaks(ctx, false)
+	require.NoError(t, err)
+	require.ElementsMatch(t, wantUserStreaks, gotUserStreaks)
+
+	allUsersStreak, err = service.GetMostRecentAllUsersGroupStreak(ctx, false)
 	require.NoError(t, err)
 	require.Equal(t, wantAllUsersStreak, *allUsersStreak)
 }
