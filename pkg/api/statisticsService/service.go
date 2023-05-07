@@ -3,10 +3,11 @@ package statisticsService
 import (
 	"context"
 	"fmt"
-	"github.com/friendsofgo/errors"
-	"github.com/sourcegraph/conc/pool"
 	"itsTasty/pkg/api/domain"
 	"time"
+
+	"github.com/friendsofgo/errors"
+	"github.com/sourcegraph/conc/pool"
 )
 
 type TimeSource interface {
@@ -18,8 +19,9 @@ const AllUsersStreakName = "allUsers"
 
 type StreakService interface {
 	UpdateRatingStreaks(ctx context.Context) error
-	GetMostRecentAllUsersGroupStreak(ctx context.Context) (*domain.RatingStreak, error)
-	GetMostRecentUserStreaks(ctx context.Context) ([]UserWithStreak, error)
+	GetMostRecentAllUsersGroupStreak(ctx context.Context, onlyOngoing bool) (*domain.RatingStreak, error)
+	GetMostRecentUserStreaks(ctx context.Context, onlyOngoing bool) ([]UserWithStreak, error)
+	GetLongestStreaks(ctx context.Context) (individualUsers []UserWithStreak, allUsersGroup *domain.RatingStreak, err error)
 }
 
 type DefaultStreakService struct {
@@ -186,7 +188,6 @@ func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
 	}
 
 	//update special "all users" rating streak
-	//TODO: try to unify code with the update code for individual users
 	allUsersMap := map[string]interface{}{}
 	for _, v := range streakData.users {
 		allUsersMap[v.Email] = nil
@@ -200,24 +201,31 @@ func (d *DefaultStreakService) UpdateRatingStreaks(ctx context.Context) error {
 
 }
 
-// GetMostRecentAllUsersGroupStreak returns the most recent streak for the special "all users" group
+// GetMostRecentAllUsersGroupStreak returns the most recent streak for the special "all users" group. If onlyOngoing
+// is set, the streak must be unbroken.
 // Marker errors: domain.ErrNotFound
-func (d *DefaultStreakService) GetMostRecentAllUsersGroupStreak(ctx context.Context) (*domain.RatingStreak, error) {
+func (d *DefaultStreakService) GetMostRecentAllUsersGroupStreak(ctx context.Context, onlyOngoing bool) (*domain.RatingStreak, error) {
 	streak, _, err := d.vacationStreakRepo.GetMostRecentStreak(ctx, AllUsersStreakName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get most recent streak : %w", err)
 	}
+
+	if onlyOngoing && streak.End.Before(domain.NewDayPrecisionTime(d.timeSource.Now()).Time) {
+		return nil, domain.ErrNotFound
+	}
+
 	return &streak, nil
 }
 
 type UserWithStreak struct {
-	User             domain.User
-	MostRecentStreak domain.RatingStreak
+	User   domain.User
+	Streak domain.RatingStreak
 }
 
-// GetMostRecentUserStreaks returns the most recent streak for each user, if they have one. The returned slice
-// may be empty if not user has any streaks so far
-func (d *DefaultStreakService) GetMostRecentUserStreaks(ctx context.Context) ([]UserWithStreak, error) {
+// GetMostRecentUserStreaks returns the most recent streak for each user, if they have one. If onlyOngoing is set,
+// only streaks that are currently unbroken are considered. The returned slice
+// may be empty.
+func (d *DefaultStreakService) GetMostRecentUserStreaks(ctx context.Context, onlyOngoing bool) ([]UserWithStreak, error) {
 	users, err := d.statsRepo.GetAllUsers(ctx)
 	if err != nil {
 		if !errors.Is(err, domain.ErrNotFound) {
@@ -235,11 +243,62 @@ func (d *DefaultStreakService) GetMostRecentUserStreaks(ctx context.Context) ([]
 			return nil, fmt.Errorf("failed to get most recent streak for user %v : %w", user.Email, err)
 		}
 
+		if onlyOngoing && streak.End.Before(domain.NewDayPrecisionTime(d.timeSource.Now()).Time) {
+			continue
+		}
+
 		result = append(result, UserWithStreak{
-			User:             user,
-			MostRecentStreak: streak,
+			User:   user,
+			Streak: streak,
 		})
 	}
 
 	return result, nil
+}
+
+func (d *DefaultStreakService) GetLongestStreaks(ctx context.Context) (individualUsers []UserWithStreak, allUsersGroup *domain.RatingStreak, err error) {
+
+	fetchPool := pool.New().WithContext(ctx).WithCancelOnError()
+
+	//fetch AllUsersStreakName data
+	fetchPool.Go(func(ctx context.Context) error {
+		s, _, err := d.vacationStreakRepo.GetLongestStreak(ctx, AllUsersStreakName)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				allUsersGroup = nil
+				return nil
+			}
+			return fmt.Errorf("failed to fetch longest streak for %s : %w", AllUsersStreakName, err)
+		}
+		allUsersGroup = &s
+
+		return nil
+	})
+
+	//fetch individual user streak data
+	fetchPool.Go(func(ctx context.Context) error {
+		users, streak, err := d.vacationStreakRepo.GetLongestIndividualStreak(ctx)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				individualUsers = make([]UserWithStreak, 0)
+				return nil
+			}
+			return fmt.Errorf("failed to fetch longest individual streak : %w", err)
+		}
+		individualUsers = make([]UserWithStreak, len(users))
+		for i, v := range users {
+			individualUsers[i] = UserWithStreak{
+				User:   domain.User{Email: v},
+				Streak: streak,
+			}
+		}
+		return nil
+	})
+
+	if poolErr := fetchPool.Wait(); poolErr != nil {
+		err = fmt.Errorf("failed to fetch data : %v", poolErr)
+	}
+
+	return
+
 }

@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/volatiletech/null/v8"
+	"github.com/volatiletech/sqlboiler/v4/queries"
 	"itsTasty/pkg/api/adapters/dishRepo/sqlboilerPSQL"
 	"itsTasty/pkg/api/domain"
 	"log"
 	"time"
+
+	"github.com/volatiletech/null/v8"
 
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/volatiletech/sqlboiler/v4/boil"
@@ -83,6 +85,57 @@ func (p *PostgresRepo) CreateRatingStreak(ctx context.Context, name string, data
 	}
 
 	return dbStreak.ID, nil
+}
+
+func (p *PostgresRepo) GetLongestIndividualStreak(ctx context.Context) ([]string, domain.RatingStreak, error) {
+
+	query := "select * from " + sqlboilerPSQL.TableNames.RatingStreaks + " a " +
+		"INNER JOIN (SELECT (" + sqlboilerPSQL.RatingStreakColumns.EndDate + " - " + sqlboilerPSQL.RatingStreakColumns.StartDate + ") " +
+		"maxLength from " + sqlboilerPSQL.TableNames.RatingStreaks + " order by maxLength desc limit 1) b " +
+		"ON (a." + sqlboilerPSQL.RatingStreakColumns.EndDate + "-a." + sqlboilerPSQL.RatingStreakColumns.StartDate + ") = maxLength" +
+		" INNER JOIN " + sqlboilerPSQL.TableNames.Users + " ON a." + sqlboilerPSQL.RatingStreakColumns.Name + " = " + sqlboilerPSQL.UserTableColumns.Email
+	queries.Raw(fmt.Sprintf("SELECT * FROM"))
+
+	var usersWithMaxStreak []sqlboilerPSQL.RatingStreak
+	if err := queries.Raw(query).Bind(ctx, p.db, &usersWithMaxStreak); err != nil {
+		return nil, domain.RatingStreak{}, fmt.Errorf("failed to query users with max streak length: %w", err)
+	}
+
+	if len(usersWithMaxStreak) == 0 {
+		return nil, domain.RatingStreak{}, domain.ErrNotFound
+	}
+	domainStreak := domain.NewRatingStreakFromDB(domain.NewDayPrecisionTime(usersWithMaxStreak[0].StartDate),
+		domain.NewDayPrecisionTime(usersWithMaxStreak[0].EndDate))
+
+	users := make([]string, len(usersWithMaxStreak))
+	for i, v := range usersWithMaxStreak {
+		users[i] = v.Name
+	}
+
+	return users, domainStreak, nil
+}
+
+func (p *PostgresRepo) GetLongestStreak(ctx context.Context, name string) (domain.RatingStreak, int, error) {
+	dbStreak, err := sqlboilerPSQL.RatingStreaks(
+		qm.Limit(1),
+		qm.OrderBy(
+			fmt.Sprintf("%s-%s desc",
+				sqlboilerPSQL.RatingStreakColumns.EndDate,
+				sqlboilerPSQL.RatingStreakColumns.StartDate,
+			)),
+		sqlboilerPSQL.RatingStreakWhere.Name.EQ(name),
+	).One(ctx, p.db)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.RatingStreak{}, 0, domain.ErrNotFound
+		}
+		return domain.RatingStreak{}, 0, fmt.Errorf("failed to query longest streak for %v : %w", name, err)
+	}
+
+	domainStreak := domain.NewRatingStreakFromDB(domain.NewDayPrecisionTime(dbStreak.StartDate),
+		domain.NewDayPrecisionTime(dbStreak.EndDate))
+	return domainStreak, dbStreak.ID, nil
 }
 
 func (p *PostgresRepo) GetMostRecentStreak(ctx context.Context, name string) (domain.RatingStreak, int, error) {

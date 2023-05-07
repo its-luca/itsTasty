@@ -73,5 +73,17 @@ type GetDishResp struct {
 	ServedAt string `json:"servedAt"`
 }
 
+// LongestVotingStreakResp Longest ever voting streaks
+type LongestVotingStreakResp struct {
+	// LongestTeamVotingStreak Longest ever team voting streak in days
+	LongestTeamVotingStreak *int `json:"longestTeamVotingStreak,omitempty"`
+
+	// LongestUserVotingStreakLength Longest ever voting streak in days of an individual user
+	LongestUserVotingStreakLength *int `json:"longestUserVotingStreakLength,omitempty"`
+
+	// UsersWithMaxStreak All users who have longestUserVotingStreakLength
+	UsersWithMaxStreak *[]string `json:"usersWithMaxStreak,omitempty"`
+}
+
 // PostCreateOrUpdateDishJSONRequestBody defines body for PostCreateOrUpdateDish for application/json ContentType.
 type PostCreateOrUpdateDishJSONRequestBody = CreateOrUpdateDishReq

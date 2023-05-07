@@ -104,6 +104,9 @@ type ClientInterface interface {
 
 	// GetStatisticsCurrentVotingStreaks request
 	GetStatisticsCurrentVotingStreaks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetStatisticsLongestVotingStreaks request
+	GetStatisticsLongestVotingStreaks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) PostCreateOrUpdateDishWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -144,6 +147,18 @@ func (c *Client) GetDishesDishID(ctx context.Context, dishID int64, reqEditors .
 
 func (c *Client) GetStatisticsCurrentVotingStreaks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetStatisticsCurrentVotingStreaksRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetStatisticsLongestVotingStreaks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetStatisticsLongestVotingStreaksRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -255,6 +270,33 @@ func NewGetStatisticsCurrentVotingStreaksRequest(server string) (*http.Request, 
 	return req, nil
 }
 
+// NewGetStatisticsLongestVotingStreaksRequest generates requests for GetStatisticsLongestVotingStreaks
+func NewGetStatisticsLongestVotingStreaksRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/statistics/longestVotingStreaks")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -308,6 +350,9 @@ type ClientWithResponsesInterface interface {
 
 	// GetStatisticsCurrentVotingStreaks request
 	GetStatisticsCurrentVotingStreaksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatisticsCurrentVotingStreaksResponse, error)
+
+	// GetStatisticsLongestVotingStreaks request
+	GetStatisticsLongestVotingStreaksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatisticsLongestVotingStreaksResponse, error)
 }
 
 type PostCreateOrUpdateDishResponse struct {
@@ -379,6 +424,28 @@ func (r GetStatisticsCurrentVotingStreaksResponse) StatusCode() int {
 	return 0
 }
 
+type GetStatisticsLongestVotingStreaksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *LongestVotingStreakResp
+}
+
+// Status returns HTTPResponse.Status
+func (r GetStatisticsLongestVotingStreaksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetStatisticsLongestVotingStreaksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // PostCreateOrUpdateDishWithBodyWithResponse request with arbitrary body returning *PostCreateOrUpdateDishResponse
 func (c *ClientWithResponses) PostCreateOrUpdateDishWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostCreateOrUpdateDishResponse, error) {
 	rsp, err := c.PostCreateOrUpdateDishWithBody(ctx, contentType, body, reqEditors...)
@@ -412,6 +479,15 @@ func (c *ClientWithResponses) GetStatisticsCurrentVotingStreaksWithResponse(ctx 
 		return nil, err
 	}
 	return ParseGetStatisticsCurrentVotingStreaksResponse(rsp)
+}
+
+// GetStatisticsLongestVotingStreaksWithResponse request returning *GetStatisticsLongestVotingStreaksResponse
+func (c *ClientWithResponses) GetStatisticsLongestVotingStreaksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatisticsLongestVotingStreaksResponse, error) {
+	rsp, err := c.GetStatisticsLongestVotingStreaks(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetStatisticsLongestVotingStreaksResponse(rsp)
 }
 
 // ParsePostCreateOrUpdateDishResponse parses an HTTP response from a PostCreateOrUpdateDishWithResponse call
@@ -513,6 +589,32 @@ func ParseGetStatisticsCurrentVotingStreaksResponse(rsp *http.Response) (*GetSta
 	return response, nil
 }
 
+// ParseGetStatisticsLongestVotingStreaksResponse parses an HTTP response from a GetStatisticsLongestVotingStreaksWithResponse call
+func ParseGetStatisticsLongestVotingStreaksResponse(rsp *http.Response) (*GetStatisticsLongestVotingStreaksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetStatisticsLongestVotingStreaksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LongestVotingStreakResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
@@ -524,6 +626,9 @@ type ServerInterface interface {
 
 	// (GET /statistics/currentVotingStreaks)
 	GetStatisticsCurrentVotingStreaks(w http.ResponseWriter, r *http.Request)
+
+	// (GET /statistics/longestVotingStreaks)
+	GetStatisticsLongestVotingStreaks(w http.ResponseWriter, r *http.Request)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -588,6 +693,23 @@ func (siw *ServerInterfaceWrapper) GetStatisticsCurrentVotingStreaks(w http.Resp
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetStatisticsCurrentVotingStreaks(w, r)
+	})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// GetStatisticsLongestVotingStreaks operation middleware
+func (siw *ServerInterfaceWrapper) GetStatisticsLongestVotingStreaks(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{""})
+
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStatisticsLongestVotingStreaks(w, r)
 	})
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -719,6 +841,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/statistics/currentVotingStreaks", wrapper.GetStatisticsCurrentVotingStreaks)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/statistics/longestVotingStreaks", wrapper.GetStatisticsLongestVotingStreaks)
+	})
 
 	return r
 }
@@ -832,6 +957,30 @@ func (response GetStatisticsCurrentVotingStreaks500Response) VisitGetStatisticsC
 	return nil
 }
 
+type GetStatisticsLongestVotingStreaksRequestObject struct {
+}
+
+type GetStatisticsLongestVotingStreaksResponseObject interface {
+	VisitGetStatisticsLongestVotingStreaksResponse(w http.ResponseWriter) error
+}
+
+type GetStatisticsLongestVotingStreaks200JSONResponse LongestVotingStreakResp
+
+func (response GetStatisticsLongestVotingStreaks200JSONResponse) VisitGetStatisticsLongestVotingStreaksResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetStatisticsLongestVotingStreaks500Response struct {
+}
+
+func (response GetStatisticsLongestVotingStreaks500Response) VisitGetStatisticsLongestVotingStreaksResponse(w http.ResponseWriter) error {
+	w.WriteHeader(500)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -843,6 +992,9 @@ type StrictServerInterface interface {
 
 	// (GET /statistics/currentVotingStreaks)
 	GetStatisticsCurrentVotingStreaks(ctx context.Context, request GetStatisticsCurrentVotingStreaksRequestObject) (GetStatisticsCurrentVotingStreaksResponseObject, error)
+
+	// (GET /statistics/longestVotingStreaks)
+	GetStatisticsLongestVotingStreaks(ctx context.Context, request GetStatisticsLongestVotingStreaksRequestObject) (GetStatisticsLongestVotingStreaksResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, args interface{}) (interface{}, error)
@@ -956,36 +1108,62 @@ func (sh *strictHandler) GetStatisticsCurrentVotingStreaks(w http.ResponseWriter
 	}
 }
 
+// GetStatisticsLongestVotingStreaks operation middleware
+func (sh *strictHandler) GetStatisticsLongestVotingStreaks(w http.ResponseWriter, r *http.Request) {
+	var request GetStatisticsLongestVotingStreaksRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStatisticsLongestVotingStreaks(ctx, request.(GetStatisticsLongestVotingStreaksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStatisticsLongestVotingStreaks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStatisticsLongestVotingStreaksResponseObject); ok {
+		if err := validResponse.VisitGetStatisticsLongestVotingStreaksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("Unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"d7t3u38HAAD//8fbU4XrEwAA",
+	"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",
+	"AAD//4p4AjLvFwAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
